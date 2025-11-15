@@ -102,6 +102,32 @@ app.get('/cart', checkAuthenticated, (req, res) => {
 // Add to cart
 app.post('/add-to-cart/:id', checkAuthenticated, ProductsController.addToCart);
 
+// Update cart quantity
+app.post('/update-cart/:id', checkAuthenticated, (req, res) => {
+    const cart = req.session.cart || [];
+    const productId = parseInt(req.params.id);
+    const quantity = parseInt(req.body.quantity);
+
+    const item = cart.find(i => i.id === productId);
+    if (item && quantity > 0) {
+        item.quantity = quantity;
+    }
+
+    req.session.cart = cart;
+    res.redirect('/cart');
+});
+
+// Remove item from cart
+app.post('/remove-from-cart/:id', checkAuthenticated, (req, res) => {
+    let cart = req.session.cart || [];
+    const productId = parseInt(req.params.id);
+
+    cart = cart.filter(item => item.id !== productId); // Remove item
+    req.session.cart = cart;
+
+    res.redirect('/cart');
+});
+
 // Register
 app.get('/register', (req, res) => {
     res.render('register', { messages: req.flash('error'), formData: req.flash('formData')[0] });

@@ -3,83 +3,242 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SunnySide Market - Shopping</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <title>Supermarket App</title>
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+
+  <!-- INTERNAL CSS -->
+  <style>
+    body {
+      background-color: #FFFBEA;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* NAVBAR */
+    nav.navbar {
+      background-color: #2E8B57 !important;
+    }
+
+    nav .navbar-brand {
+      font-family: 'Pacifico', cursive;
+      font-size: 1.8rem;
+      color: white !important;
+    }
+
+    nav .nav-link {
+      color: white !important;
+      font-weight: bold;
+    }
+
+    nav .nav-link:hover {
+      background-color: #FFD54F;
+      color: black !important;
+      border-radius: 5px;
+    }
+
+    /* Hero Section */
+    .hero {
+      text-align: center;
+      margin: 30px 0;
+    }
+
+    .hero h2 {
+      color: #2E8B57;
+      margin-bottom: 20px;
+    }
+
+    /* Controls */
+    .controls {
+      margin-bottom: 30px;
+    }
+
+    /* Product Card */
+    .card {
+      border-radius: 15px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      height: 100%;
+    }
+
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 250px; /* ensures uniform height */
+    }
+
+    .card .price {
+      font-weight: bold;
+      color: #FFA500;
+      font-size: 1.1rem;
+    }
+
+    .card .category {
+      color: #555;
+      font-size: 0.9rem;
+    }
+
+    .card img {
+    height: 200px;          /* fixed height for all images */
+    object-fit: cover;      /* scale & crop to fill the space */
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+    }
+
+
+    /* View Product button */
+    .btn-view {
+      background-color: #FFD54F; /* yellow */
+      color: black;
+      border: none;
+    }
+
+    .btn-view:hover {
+      background-color: #FFA500; /* orange on hover */
+      color: white;
+    }
+
+    .add-to-cart-btn {
+      background-color: #FFA500;
+      border: none;
+    }
+
+    .add-to-cart-btn:hover {
+      background-color: #FF8C00;
+    }
+
+    @media(max-width: 768px) {
+      .controls .col-md-4,
+      .controls .col-md-3 {
+        margin-bottom: 10px;
+      }
+    }
+  </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-sm bg-dark navbar-dark">
+  <!-- NAVBAR -->
+  <nav class="navbar navbar-expand-sm navbar-dark">
       <div class="container-fluid">
-        <a class="navbar-brand" href="/">Supermarket App</a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsibleNavbar">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="collapsibleNavbar">
-          <ul class="navbar-nav">
-            <li class="nav-item">
-              <a class="nav-link" href="/cart">View Cart</a>
-            </li> 
-            <li class="nav-item">
-              <a class="nav-link" href="/logout">Logout</a>
-            </li> 
-          </ul>
-        </div>
+          <a class="navbar-brand" href="#">SunnySide Market</a>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsibleNavbar">
+              <span class="navbar-toggler-icon"></span>
+          </button>
+          <div class="collapse navbar-collapse" id="collapsibleNavbar">
+              <ul class="navbar-nav ms-auto">
+                  <li class="nav-item">
+                      <a class="nav-link" href="/cart">View Cart</a>
+                  </li> 
+                  <li class="nav-item">
+                      <a class="nav-link" href="/logout">Logout</a>
+                  </li> 
+              </ul>
+          </div>
       </div>
-    </nav>
+  </nav>
 
-  <div class="container">
-    <p>Welcome, <%= user.username %> (<%= user.role %>)</p>
-    <br>
-    <div class="text-center"><h2>Products from Supermarket</h2></div>
-    <br>
-    <table class="table table-hover small text-center">
-      <thead>
-          <tr>
-            <th width="100">Product Name</th>
-            <th width="100">Product Image</th>
-            <th width="50">Quantity</th>
-            <th width="50">Price</th>
-            <th width="50">Quantity</th>
-            <th width="50">Buy</th>
-          </tr>
-      </thead>
-      <tbody>
-        <% for(let i=0; i < products.length; i++) { %>
-          <tr>
-            <td><a href="/product/<%= products[i].id %>" ><%= products[i].productName %></a></td>
-            <td><img src = "images/<%= products[i].image %>" width="20%"></td>
-            <td><%= products[i].quantity %></td>
-            <td>$<%= products[i].price.toFixed(2) %></td>
-            <!-- <td>
-              <select id="role" name="role" class="form-control" >
-                <option value="1" selected >1</option>
-                <option value="2" >2</option>
-                <option value="3" >3</option>
-                <option value="4" >4</option>
-                <option value="5" >5</option>
-              </select>
-            </td> -->
-            <!-- Buy Link -->
-            <!-- <td><a href="/buyProduct/<%#= products[i].id %>" class="btn btn-primary mt-3">Buy</a></td> -->
-            <td>
-              <select class="form-control" onchange="document.getElementById('quantity-<%= products[i].id %>').value = this.value">
-                <% for (let q = 1; q <= 5; q++) { %>
-                  <option value="<%= q %>"><%= q %></option>
-                <% } %>
-              </select>
-            </td>
-
-            <td>
-                <form action="/add-to-cart/<%= products[i].id %>" method="POST">
-                  <input type="hidden" name="quantity" id="quantity-<%= products[i].id %>" value="1">
-                  <button type="submit" class="btn btn-primary mt-3">Buy</button>
-                </form>
-            </td>
-
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
+  <!-- Hero -->
+  <div class="hero">
+    <h2>Welcome to SunnySide Market</h2>
   </div>
+
+  <!-- Controls -->
+  <div class="container controls">
+    <div class="row align-items-center">
+      <div class="col-md-4 mb-2">
+        <input type="text" id="searchInput" class="form-control" placeholder="Search products...">
+      </div>
+      <div class="col-md-3 mb-2">
+        <select id="categorySelect" class="form-select">
+          <option value="all">All Categories</option>
+          <% let categories = [...new Set(products.map(p => p.category))]; %>
+          <% categories.forEach(cat => { %>
+            <option value="<%= cat %>"><%= cat %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="col-md-3 mb-2">
+        <select id="sortSelect" class="form-select">
+          <option value="name-asc">Name A-Z</option>
+          <option value="name-desc">Name Z-A</option>
+          <option value="price-asc">Price Low to High</option>
+          <option value="price-desc">Price High to Low</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Products -->
+  <div class="container">
+    <div class="row" id="productContainer">
+      <% products.forEach(product => { %>
+        <div class="col-md-3 mb-4 product-card">
+          <div class="card h-100">
+            <img src="images/<%= product.image %>" class="card-img-top" alt="<%= product.productName %>">
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title"><%= product.productName %></h5>
+              <p class="category"><%= product.category || "Uncategorized" %></p>
+              <p class="price">$<%= product.price.toFixed(2) %></p>
+              <a href="/product/<%= product.id %>" class="btn btn-view mb-2 w-100">View Product</a>
+              <div class="input-group mt-auto">
+                <input type="number" min="1" value="1" class="form-control quantity-input" id="quantity-<%= product.id %>">
+                <form action="/add-to-cart/<%= product.id %>" method="POST">
+                  <input type="hidden" name="quantity" id="form-quantity-<%= product.id %>" value="1">
+                  <button type="submit" class="btn add-to-cart-btn" onclick="document.getElementById('form-quantity-<%= product.id %>').value = document.getElementById('quantity-<%= product.id %>').value;">Add to Cart</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- JS for search, filter, sort -->
+  <script>
+    const searchInput = document.getElementById('searchInput');
+    const categorySelect = document.getElementById('categorySelect');
+    const sortSelect = document.getElementById('sortSelect');
+    const productContainer = document.getElementById('productContainer');
+    const productCards = Array.from(document.querySelectorAll('.product-card'));
+
+    function filterAndSort() {
+      const search = searchInput.value.toLowerCase();
+      const category = categorySelect.value;
+      const sort = sortSelect.value;
+
+      let filtered = productCards.filter(card => {
+        const name = card.querySelector('.card-title').textContent.toLowerCase();
+        const cat = card.querySelector('.category').textContent;
+        return name.includes(search) && (category === 'all' || cat === category);
+      });
+
+      filtered.sort((a, b) => {
+        if(sort === 'name-asc') {
+          return a.querySelector('.card-title').textContent.localeCompare(b.querySelector('.card-title').textContent);
+        } else if(sort === 'name-desc') {
+          return b.querySelector('.card-title').textContent.localeCompare(a.querySelector('.card-title').textContent);
+        } else if(sort === 'price-asc') {
+          return parseFloat(a.querySelector('.price').textContent.replace('$','')) - parseFloat(b.querySelector('.price').textContent.replace('$',''));
+        } else if(sort === 'price-desc') {
+          return parseFloat(b.querySelector('.price').textContent.replace('$','')) - parseFloat(a.querySelector('.price').textContent.replace('$',''));
+        }
+        return 0;
+      });
+
+      productContainer.innerHTML = '';
+      filtered.forEach(card => productContainer.appendChild(card));
+    }
+
+    searchInput.addEventListener('input', filterAndSort);
+    categorySelect.addEventListener('change', filterAndSort);
+    sortSelect.addEventListener('change', filterAndSort);
+  </script>
 </body>
 </html>
+
+
+
