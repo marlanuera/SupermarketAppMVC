@@ -3,7 +3,8 @@ const session = require('express-session');
 const flash = require('connect-flash');
 const multer = require('multer');
 const path = require('path');
-const StudentController = require('./controllers/StudentController');
+const ProductsController = require('./controllers/ProductsController');
+const UsersController = require('./controllers/UsersController');
 const app = express();
 
 // Set up multer for file uploads
@@ -71,25 +72,26 @@ app.get('/', (req, res) => {
 });
 
 // Inventory (admin only)
-app.get('/inventory', checkAuthenticated, checkAdmin, StudentController.listProductsView);
+app.get('/inventory', checkAuthenticated, checkAdmin, ProductsController.listProductsView);
 
 // Shopping (user)
-app.get('/shopping', checkAuthenticated, StudentController.listProductsViewShopping);
+app.get('/shopping', checkAuthenticated, ProductsController.listProductsViewShopping);
 
 // Product details
-app.get('/product/:id', checkAuthenticated, StudentController.getProductByIdView);
+app.get('/product/:id', checkAuthenticated, ProductsController.getProductByIdView);
 
 // Add product (admin only)
 app.get('/addProduct', checkAuthenticated, checkAdmin, (req, res) => {
     res.render('addProduct', { user: req.session.user });
 });
-app.post('/addProduct', checkAuthenticated, checkAdmin, upload.single('image'), StudentController.addProductView);
+app.post('/addProduct', checkAuthenticated, checkAdmin, upload.single('image'), ProductsController.addProductView);
 
 // Update product (admin only)
-app.get('/updateProduct/:id', checkAuthenticated, checkAdmin, StudentController.getProductByIdEditView);
-app.post('/updateProduct/:id', checkAuthenticated, checkAdmin, upload.single('image'), StudentController.updateProductView);
+app.get('/updateProduct/:id', checkAuthenticated, checkAdmin, ProductsController.getProductByIdEditView);
+app.post('/updateProduct/:id', checkAuthenticated, checkAdmin, upload.single('image'), ProductsController.updateProductView);
 
-app.post('/deleteProduct/:id', checkAuthenticated, checkAdmin, StudentController.deleteProductView);
+// Delete product (admin only)
+app.post('/deleteProduct/:id', checkAuthenticated, checkAdmin, ProductsController.deleteProductView);
 
 // Cart
 app.get('/cart', checkAuthenticated, (req, res) => {
@@ -98,19 +100,19 @@ app.get('/cart', checkAuthenticated, (req, res) => {
 });
 
 // Add to cart
-app.post('/add-to-cart/:id', checkAuthenticated, StudentController.addToCart);
+app.post('/add-to-cart/:id', checkAuthenticated, ProductsController.addToCart);
 
 // Register
 app.get('/register', (req, res) => {
     res.render('register', { messages: req.flash('error'), formData: req.flash('formData')[0] });
 });
-app.post('/register', validateRegistration, StudentController.registerUser);
+app.post('/register', validateRegistration, UsersController.registerUser);
 
 // Login
 app.get('/login', (req, res) => {
     res.render('login', { messages: req.flash('success'), errors: req.flash('error') });
 });
-app.post('/login', StudentController.loginUser);
+app.post('/login', UsersController.loginUser);
 
 // Logout
 app.get('/logout', (req, res) => {
