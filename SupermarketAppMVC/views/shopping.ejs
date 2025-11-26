@@ -54,6 +54,12 @@
   <div class="hero"><h2>Welcome to SunnySide Market</h2></div>
 
   <div class="container controls mb-4">
+    <% if (messages.error) { %>
+      <script>
+        alert("<%= messages.error %>");
+      </script>
+    <% } %>
+
     <div class="row align-items-center">
       <div class="col-md-4 mb-2">
         <input type="text" id="searchInput" class="form-control" placeholder="Search products...">

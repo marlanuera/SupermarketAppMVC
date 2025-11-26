@@ -66,7 +66,13 @@ app.get('/', (req, res) => res.render('index', { user: req.session.user }));
 app.get('/inventory', checkAuthenticated, checkAdmin, ProductsController.listProductsView);
 
 // Shopping
-app.get('/shopping', checkAuthenticated, ProductsController.listProductsViewShopping);
+app.get('/shopping', checkAuthenticated, async (req, res) => {
+    const [products] = await db.promise().query('SELECT * FROM products');
+    res.render('shopping', {
+        products,
+        messages: req.flash()
+    });
+});
 
 // Product details
 app.get('/product/:id', checkAuthenticated, ProductsController.getProductByIdView);
@@ -101,7 +107,7 @@ app.get('/cart', checkAuthenticated, async (req, res) => {
     }
 });
 
-// Add to Cart (updated to use input quantity)
+// Add to Cart
 app.post('/add-to-cart/:id', checkAuthenticated, async (req, res) => {
     try {
         const userId = req.session.user.id;
@@ -109,22 +115,40 @@ app.post('/add-to-cart/:id', checkAuthenticated, async (req, res) => {
         let quantity = parseInt(req.body.quantity);
         if (!quantity || quantity < 1) quantity = 1;
 
-        // Check if already in cart
-        const [rows] = await db.promise().query(
-            `SELECT * FROM cartitems WHERE userId = ? AND productId = ?`,
+        const [productRows] = await db.promise().query(
+            'SELECT quantity, productName FROM products WHERE id = ?',
+            [productId]
+        );
+
+        if (!productRows.length) {
+            req.flash('error', 'Product not found');
+            return res.redirect('/shopping');
+        }
+
+        const stock = productRows[0].quantity;
+        if (quantity > stock) {
+            req.flash('error', `Insufficient stock for "${productRows[0].productName}". Only ${stock} available.`);
+            return res.redirect('/shopping');
+        }
+
+        const [cartRows] = await db.promise().query(
+            'SELECT * FROM cartitems WHERE userId = ? AND productId = ?',
             [userId, productId]
         );
 
-        if (rows.length > 0) {
-            // Update quantity to add the new value
+        if (cartRows.length > 0) {
+            const newQuantity = cartRows[0].quantity + quantity;
+            if (newQuantity > stock) {
+                req.flash('error', `Cannot add ${quantity} items. Only ${stock - cartRows[0].quantity} more can be added.`);
+                return res.redirect('/shopping');
+            }
             await db.promise().query(
-                `UPDATE cartitems SET quantity = quantity + ? WHERE userId = ? AND productId = ?`,
+                'UPDATE cartitems SET quantity = quantity + ? WHERE userId = ? AND productId = ?',
                 [quantity, userId, productId]
             );
         } else {
-            // Insert new
             await db.promise().query(
-                `INSERT INTO cartitems (userId, productId, quantity) VALUES (?, ?, ?)`,
+                'INSERT INTO cartitems (userId, productId, quantity) VALUES (?, ?, ?)',
                 [userId, productId, quantity]
             );
         }
@@ -132,9 +156,12 @@ app.post('/add-to-cart/:id', checkAuthenticated, async (req, res) => {
         res.redirect('/cart');
     } catch (err) {
         console.error(err);
-        res.send('Error adding to cart');
+        req.flash('error', 'Error adding product to cart');
+        res.redirect('/shopping');
     }
 });
+
+
 
 // Update Cart Quantity
 app.post('/update-cart/:id', checkAuthenticated, async (req, res) => {
@@ -206,54 +233,59 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
     }
 });
 
-      
 
 // Process checkout
 app.post('/checkout', checkAuthenticated, async (req, res) => {
-    try {
-        const userId = req.session.user.id;
-        const cart = await db.promise().query(`
-            SELECT c.quantity, p.id AS productId, p.price
-            FROM cartitems c
-            JOIN products p ON c.productId = p.id
-            WHERE c.userId = ?
-        `, [userId]);
+  try {
+    const userId = req.session.user.id;
+    const [cartResult] = await db.promise().query(`
+      SELECT c.quantity, p.id AS productId, p.price
+      FROM cartitems c
+      JOIN products p ON c.productId = p.id
+      WHERE c.userId = ?
+    `, [userId]);
 
-        const cartItems = cart[0];
-        if (!cartItems.length) return res.redirect('/cart');
+    const cartItems = cartResult;
+    if (!cartItems.length) return res.redirect('/cart');
 
-        // Calculate total
-        let subtotal = 0;
-        cartItems.forEach(item => { subtotal += item.price * item.quantity; });
-        const tax = subtotal * 0.08;
-        const total = subtotal + tax;
+    // Calculate total
+    let subtotal = 0;
+    cartItems.forEach(item => { subtotal += item.price * item.quantity; });
+    const tax = subtotal * 0.08;
+    const total = subtotal + tax;
 
-        // Create order
-        const [orderResult] = await db.promise().query(
-            `INSERT INTO orders (userId, orderDate, totalAmount, status) VALUES (?, NOW(), ?, 'pending')`,
-            [userId, total]
-        );
-        const orderId = orderResult.insertId;
+    // Create order
+    const [orderResult] = await db.promise().query(
+      `INSERT INTO orders (userId, orderDate, totalAmount, status) VALUES (?, NOW(), ?, 'pending')`,
+      [userId, total]
+    );
+    const orderId = orderResult.insertId;
 
-        // Add order items
-        for (const item of cartItems) {
-            await db.promise().query(
-                `INSERT INTO orderitems (orderId, productId, quantity, price) VALUES (?, ?, ?, ?)`,
-                [orderId, item.productId, item.quantity, item.price]
-            );
-        }
+    // Add order items and deduct stock
+    for (const item of cartItems) {
+      await db.promise().query(
+        `INSERT INTO orderitems (orderId, productId, quantity, price) VALUES (?, ?, ?, ?)`,
+        [orderId, item.productId, item.quantity, item.price]
+      );
 
-        // Clear cart
-        await db.promise().query(`DELETE FROM cartitems WHERE userId = ?`, [userId]);
-        req.session.cart = [];
-
-        // Redirect to order success page
-        res.render('orderSuccess', { orderId, total, user: req.session.user });
-    } catch (err) {
-        console.error(err);
-        res.send('Error processing your order');
+      // Deduct stock from products table
+      await db.promise().query(
+        `UPDATE products SET quantity = quantity - ? WHERE id = ?`,
+        [item.quantity, item.productId]
+      );
     }
+
+    // Clear cart
+    await db.promise().query(`DELETE FROM cartitems WHERE userId = ?`, [userId]);
+
+    res.render('orderSuccess', { orderId, total, user: req.session.user });
+  } catch (err) {
+    console.error(err);
+    res.send('Error processing your order');
+  }
 });
+
+
 
 app.get('/payment', checkAuthenticated, (req, res) => {
   const cart = req.session.cart || [];
