@@ -174,12 +174,12 @@ app.post('/cart/clear', checkAuthenticated, async (req, res) => {
     }
 });
 
+
 // Checkout page
 app.get('/checkout', checkAuthenticated, async (req, res) => {
     try {
         const userId = req.session.user.id;
 
-        // Fetch cart items with product details
         const [cartItems] = await db.promise().query(`
             SELECT c.id AS cartId, c.quantity, p.id AS productId, p.productName, p.category, p.price, p.image
             FROM cartitems c
@@ -196,12 +196,17 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
         const tax = subtotal * 0.08;
         const total = subtotal + tax;
 
+        // Save cart in session for payment
+        req.session.cart = cartItems;
+
         res.render('checkout', { cart: cartItems, subtotal, tax, total, user: req.session.user });
     } catch (err) {
         console.error(err);
         res.send('Error loading checkout page');
     }
 });
+
+      
 
 // Process checkout
 app.post('/checkout', checkAuthenticated, async (req, res) => {
@@ -249,6 +254,58 @@ app.post('/checkout', checkAuthenticated, async (req, res) => {
         res.send('Error processing your order');
     }
 });
+
+app.get('/payment', checkAuthenticated, (req, res) => {
+  const cart = req.session.cart || [];
+
+  if (!cart || cart.length === 0) {
+    return res.redirect('/cart'); // redirect if cart is empty
+  }
+
+  let subtotal = 0;
+  cart.forEach(item => subtotal += item.price * item.quantity);
+  const tax = subtotal * 0.08;
+  const total = subtotal + tax;
+
+  res.render('payment', { cart, subtotal, tax, total, user: req.session.user });
+});
+
+app.post('/payment', checkAuthenticated, async (req, res) => {
+  const cart = req.session.cart || [];
+  if (!cart.length) return res.redirect('/cart');
+
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const tax = subtotal * 0.08;
+  const total = subtotal + tax;
+
+  // Create order
+  try {
+    const [orderResult] = await db.promise().query(
+      `INSERT INTO orders (userId, orderDate, totalAmount, status) VALUES (?, NOW(), ?, 'pending')`,
+      [req.session.user.id, total]
+    );
+
+    const orderId = orderResult.insertId;
+
+    for (const item of cart) {
+      await db.promise().query(
+        `INSERT INTO orderitems (orderId, productId, quantity, price) VALUES (?, ?, ?, ?)`,
+        [orderId, item.productId, item.quantity, item.price]
+      );
+    }
+
+    // Clear cart
+    await db.promise().query(`DELETE FROM cartitems WHERE userId = ?`, [req.session.user.id]);
+    req.session.cart = [];
+
+    res.render('ordersuccess', { orderId, total, user: req.session.user });
+  } catch (err) {
+    console.error(err);
+    res.send('Error processing payment');
+  }
+});
+
+
 
 // --- Reviews Routes --- //
 app.get('/reviews', checkAuthenticated, async (req, res) => {
