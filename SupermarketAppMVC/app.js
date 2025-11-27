@@ -239,6 +239,115 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
     }
 });
 
+
+app.get('/admin/dashboard', checkAuthenticated, checkAdmin, async (req, res) => {
+  try {
+    // Total sales
+    const [[{ totalSales }]] = await db.promise().query(
+      'SELECT IFNULL(SUM(totalAmount),0) as totalSales FROM orders'
+    );
+
+    // Total orders
+    const [[{ totalOrders }]] = await db.promise().query(
+      'SELECT COUNT(*) as totalOrders FROM orders'
+    );
+
+    // Pending orders
+    const [[{ pendingOrders }]] = await db.promise().query(
+      "SELECT COUNT(*) as pendingOrders FROM orders WHERE status='pending'"
+    );
+
+    // Top product by quantity sold
+    const [topProduct] = await db.promise().query(`
+      SELECT p.productName, SUM(oi.quantity) as totalSold
+      FROM orderitems oi
+      JOIN products p ON oi.productId = p.id
+      GROUP BY oi.productId
+      ORDER BY totalSold DESC
+      LIMIT 1
+    `);
+
+    res.render('adminDashboard', { 
+      totalSales, 
+      totalOrders, 
+      pendingOrders, 
+      topProduct, 
+      user: req.session.user 
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.send('Error loading admin dashboard');
+  }
+});
+
+
+/* -------------------- ORDER HISTORY -------------------- */
+
+// GET /order-history - show user's past orders
+app.get('/order-history', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+
+        // Fetch all orders of this user
+        const [orders] = await db.promise().query(`
+            SELECT id AS orderId, totalAmount, orderDate, status
+            FROM orders
+            WHERE userId = ?
+            ORDER BY orderDate DESC
+        `, [userId]);
+
+        // Fetch items for each order
+        for (let order of orders) {
+            const [items] = await db.promise().query(`
+                SELECT oi.productId, oi.quantity, oi.price, p.productName
+                FROM orderitems oi
+                JOIN products p ON oi.productId = p.id
+                WHERE oi.orderId = ?
+            `, [order.orderId]);
+
+            order.items = items;
+        }
+
+        res.render('orderHistory', { orders, user: req.session.user });
+
+    } catch (err) {
+        console.error(err);
+        res.send('Error fetching order history');
+    }
+});
+
+
+app.get('/order-invoice/:id', checkAuthenticated, async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const userId = req.session.user.id;
+
+        const [[order]] = await db.promise().query(
+            'SELECT * FROM orders WHERE id = ? AND userId = ?',
+            [orderId, userId]
+        );
+        if (!order) return res.send('Order not found');
+
+        const [items] = await db.promise().query(`
+            SELECT oi.productId, oi.quantity, oi.price, p.productName
+            FROM orderitems oi
+            JOIN products p ON oi.productId = p.id
+            WHERE oi.orderId = ?
+        `, [orderId]);
+
+        const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const tax = subtotal * 0.08;
+        const total = subtotal + tax;
+
+        res.render('orderInvoice', { order, items, subtotal, tax, total });
+    } catch (err) {
+        console.error(err);
+        res.send('Error loading invoice');
+    }
+});
+
+
 /* -------------------- PAYMENT -------------------- */
 
 // GET payment page
