@@ -17,14 +17,11 @@ nav.navbar {
     background-color: #2E8B57 !important; 
 }
 
-.cursive-logo {
-  font-family: 'Pacifico', cursive;
+nav .navbar-brand { 
+    font-family: 'Pacifico', cursive; 
+    font-size: 1.8rem; 
+    color: white !important; 
 }
-
-.normal-logo {
-  font-family: Arial, sans-serif; /* or whatever your main font is */
-}
-
 
 nav .nav-link { 
     color: white !important; 
@@ -80,20 +77,23 @@ nav .nav-link:hover {
 </style>
 </head>
 <body>
+
+<!-- ⭐ SAME NAVBAR AS SHOPPING PAGE ⭐ -->
 <nav class="navbar navbar-expand-sm navbar-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="#">
-      <span class="cursive-logo">SunnySide</span>
-      <span class="normal-logo"> Market</span>
-    </a>
-    <div class="collapse navbar-collapse" id="collapsibleNavbar">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item"><a class="nav-link" href="/shopping">Shopping</a></li>
-        <li class="nav-item"><a class="nav-link" href="/cart">Cart</a></li>
-        <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
-      </ul>
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">SunnySide Market</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsibleNavbar">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="collapsibleNavbar">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item"><a class="nav-link" href="/shopping">Shopping</a></li>
+                <li class="nav-item"><a class="nav-link" href="/cart">View Cart</a></li> 
+                <li class="nav-item"><a class="nav-link" href="/reviews">Reviews</a></li>
+                <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li> 
+            </ul>
+        </div>
     </div>
-  </div>
 </nav>
 
 <div class="container mt-4">
@@ -111,6 +111,7 @@ nav .nav-link:hover {
           <% }) %>
         </select>
       </div>
+
       <div class="col-md-2">
         <label for="rating" class="form-label">Rating</label>
         <select class="form-select" name="rating" required>
@@ -119,10 +120,12 @@ nav .nav-link:hover {
           <% } %>
         </select>
       </div>
+
       <div class="col-md-4">
         <label for="comment" class="form-label">Comment</label>
         <input type="text" class="form-control" name="comment" placeholder="Your review..." required>
       </div>
+
       <div class="col-md-2">
         <button type="submit" class="btn btn-add w-100">Add Review</button>
       </div>
@@ -138,10 +141,10 @@ nav .nav-link:hover {
         </div>
         <div class="rating"><%= r.rating %> ⭐</div>
       </div>
+      
       <p><%= r.comment %></p>
       <small class="text-muted"><%= new Date(r.createdAt).toLocaleString() %></small>
       
-      <!-- Delete button visible only to review owner or admin -->
       <% if(user.id === r.userId || user.role === 'admin') { %>
         <form action="/reviews/delete/<%= r.id %>" method="POST" class="mt-2">
           <button type="submit" class="btn-delete">Delete</button>
@@ -150,5 +153,7 @@ nav .nav-link:hover {
     </div>
   <% }) %>
 </div>
+
 </body>
 </html>
+
