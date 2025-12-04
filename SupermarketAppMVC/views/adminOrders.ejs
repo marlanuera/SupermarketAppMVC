@@ -21,23 +21,7 @@
   </style>
 </head>
 <body>
-  <!-- NAVBAR -->
-  <nav class="navbar navbar-expand-sm navbar-dark">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="/">SunnySide Market</a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsibleNavbar">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-      <div class="collapse navbar-collapse" id="collapsibleNavbar">
-        <ul class="navbar-nav ms-auto">
-          <li class="nav-item"><a class="nav-link" href="/inventory">Inventory</a></li>
-          <li class="nav-item"><a class="nav-link" href="/admin/customers">Customer Accounts</a></li>
-          <li class="nav-item"><a class="nav-link" href="/admin/reviews">Customer Reviews</a></li>
-          <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
-        </ul>
-      </div>
-    </div>
-  </nav>
+  <%- include('partials/navbar') %>
 
 
   <div class="container mt-4">

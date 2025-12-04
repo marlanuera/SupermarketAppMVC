@@ -263,47 +263,6 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
 });
 
 
-app.get('/admin/dashboard', checkAuthenticated, checkAdmin, async (req, res) => {
-  try {
-    // Total sales
-    const [[{ totalSales }]] = await db.promise().query(
-      'SELECT IFNULL(SUM(totalAmount),0) as totalSales FROM orders'
-    );
-
-    // Total orders
-    const [[{ totalOrders }]] = await db.promise().query(
-      'SELECT COUNT(*) as totalOrders FROM orders'
-    );
-
-    // Pending orders
-    const [[{ pendingOrders }]] = await db.promise().query(
-      "SELECT COUNT(*) as pendingOrders FROM orders WHERE status='pending'"
-    );
-
-    // Top product by quantity sold
-    const [topProduct] = await db.promise().query(`
-      SELECT p.productName, SUM(oi.quantity) as totalSold
-      FROM orderitems oi
-      JOIN products p ON oi.productId = p.id
-      GROUP BY oi.productId
-      ORDER BY totalSold DESC
-      LIMIT 1
-    `);
-
-    res.render('adminDashboard', { 
-      totalSales, 
-      totalOrders, 
-      pendingOrders, 
-      topProduct, 
-      user: req.session.user 
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.send('Error loading admin dashboard');
-  }
-});
-
 
 /* -------------------- ORDER HISTORY -------------------- */
 
