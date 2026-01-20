@@ -8,6 +8,10 @@ const UsersController = require('./controllers/UsersController');
 const db = require('./db');
 const app = express();
 
+
+
+
+
 /* -------------------- MULTER SETUP -------------------- */
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'public/images'),
@@ -20,6 +24,7 @@ const upload = multer({ storage });
 /* -------------------- APP SETTINGS -------------------- */
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
+app.use(express.json()); 
 app.use(express.urlencoded({ extended: false }));
 
 app.use(session({
@@ -252,12 +257,18 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
         // Save cart in session for payment
         req.session.cart = cartItems;
 
-        res.render('checkout', { cart: cartItems, subtotal, tax, total, user: req.session.user });
+        res.render('checkout', { cart: cartItems, subtotal, tax, total, user: req.session.user, paypalClientId: process.env.PAYPAL_CLIENT_ID,
+    paypalCurrency: 'SGD' });
     } catch (err) {
         console.error(err);
         res.send('Error loading checkout page');
     }
 });
+
+
+// PayPal routes
+const paypalRoutes = require('./routes/paypal');
+app.use('/paypal', paypalRoutes);
 
 
 
