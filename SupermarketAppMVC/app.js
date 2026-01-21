@@ -537,6 +537,62 @@ app.post('/admin/orders/:id/status', checkAuthenticated, checkAdmin, async (req,
     }
 });
 
+
+app.post('/paypal/capture-order', async (req, res) => {
+  const { orderId } = req.body;
+
+  try {
+    // capture payment using PayPal API
+    const captureData = await capturePayPalOrder(orderId); // your PayPal capture logic
+    if (!captureData) return res.status(400).json({ ok: false, error: "Capture failed" });
+
+    // Save order to database
+    const newOrder = await Order.create({
+      items: req.session.cart,
+      subtotal: req.session.subtotal,
+      tax: req.session.tax,
+      total: req.session.total,
+      user: req.session.userId,        // if you have a logged-in user
+      status: 'Pending',               // initial status
+      paymentId: orderId,              // store PayPal order ID
+      shippingInfo: req.body.shipping  // optional
+    });
+
+    // SAVE this order ID in session so /receipt knows
+    req.session.lastOrderId = newOrder._id;
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+
+// Route to render receipt after PayPal payment
+app.get('/receipt', async (req, res) => {
+  try {
+    const orderId = req.session.lastOrderId;
+    if (!orderId) return res.redirect('/shopping'); // fallback
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.redirect('/shopping');
+
+    order.status = 'Completed';
+    await order.save();
+
+    req.session.cart = [];
+    req.session.lastOrderId = null;
+
+    res.render('receipt', { order }); // render receipt page
+  } catch (err) {
+    console.error(err);
+    res.redirect('/shopping');
+  }
+});
+
+
+
 /* -------------------- AUTH -------------------- */
 
 app.get('/register', (req, res) => {
