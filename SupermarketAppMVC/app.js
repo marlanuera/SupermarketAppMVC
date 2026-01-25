@@ -7,9 +7,7 @@ const ProductsController = require('./controllers/ProductsController');
 const UsersController = require('./controllers/UsersController');
 const db = require('./db');
 const app = express();
-
-
-
+const fetch = require('node-fetch'); // at the top of app.js if not already imported
 
 
 /* -------------------- MULTER SETUP -------------------- */
@@ -567,6 +565,45 @@ app.post('/paypal/capture-order', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+
+app.post('/nets/create-order', async (req, res) => {
+  try {
+    const { total, orderId } = req.body;
+
+    const NETS_ENV = process.env.NETS_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'production';
+    const NETS_BASE = NETS_ENV === 'sandbox' 
+      ? 'https://sandbox.api.nets.com/qrpay/v1' 
+      : 'https://api.nets.com/qrpay/v1';
+
+    const payload = {
+      merchantId: process.env.NETS_MERCHANT_ID,
+      amount: total,
+      currency: 'SGD',
+      reference: String(orderId)
+    };
+
+    const r = await fetch(`${NETS_BASE}/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NETS_API_KEY}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await r.json();
+
+    if (!r.ok) return res.status(500).json({ error: data });
+
+    res.json({ qrUrl: data.qrCodeUrl });
+  } catch (err) {
+    console.error('NETS create-order error:', err);
+    res.status(500).json({ error: 'Failed to create NETS order' });
+  }
+});
+
+
 
 
 // Route to render receipt after PayPal payment

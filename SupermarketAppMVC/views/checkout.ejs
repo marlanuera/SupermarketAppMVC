@@ -223,8 +223,36 @@
             }).render("#paypal-button-container");
           </script>
 
-          <!-- NETS QR Code Placeholder -->
-          <div class="qr-placeholder">NETS QR Code Here</div>
+          <div id="nets-qr-container" class="qr-placeholder">Loading NETS QR...</div>
+
+          <script>
+          async function loadNetsQR() {
+            try {
+              const res = await fetch('/nets/create-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ total: <%= total.toFixed(2) %>, orderId: Date.now() })
+              });
+
+              const data = await res.json();
+              const qrContainer = document.getElementById('nets-qr-container');
+
+              if (data.qrUrl) {
+                qrContainer.innerHTML = `<img src="${data.qrUrl}" alt="NETS QR" style="max-width:150px;">`;
+              } else {
+                qrContainer.innerText = "Failed to load NETS QR";
+              }
+            } catch (err) {
+              console.error('Frontend NETS error:', err);
+              document.getElementById('nets-qr-container').innerText = "Failed to load NETS QR";
+            }
+          }
+
+          loadNetsQR();
+
+          </script>
+
+
         </div>
 
       </div>
