@@ -8,6 +8,9 @@ const UsersController = require('./controllers/UsersController');
 const db = require('./db');
 const app = express();
 const fetch = require('node-fetch'); // at the top of app.js if not already imported
+const axios = require('axios');
+const netsQr = require('./services/nets');
+
 
 
 /* -------------------- MULTER SETUP -------------------- */
@@ -265,7 +268,7 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
 
 
 // PayPal routes
-const paypalRoutes = require('./routes/paypal');
+const paypalRoutes = require('./services/paypal');
 app.use('/paypal', paypalRoutes);
 
 
@@ -566,43 +569,75 @@ app.post('/paypal/capture-order', async (req, res) => {
   }
 });
 
+app.post('/generateNETSQR', checkAuthenticated, netsQr.generateQrCode);
 
-app.post('/nets/create-order', async (req, res) => {
-  try {
-    const { total, orderId } = req.body;
 
-    const NETS_ENV = process.env.NETS_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'production';
-    const NETS_BASE = NETS_ENV === 'sandbox' 
-      ? 'https://sandbox.api.nets.com/qrpay/v1' 
-      : 'https://api.nets.com/qrpay/v1';
+app.get('/sse/payment-status/:txnRetrievalRef', async (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
 
-    const payload = {
-      merchantId: process.env.NETS_MERCHANT_ID,
-      amount: total,
-      currency: 'SGD',
-      reference: String(orderId)
-    };
+  const txnRetrievalRef = req.params.txnRetrievalRef;
+  let pollCount = 0;
+  const maxPolls = 60; // 5 minutes
 
-    const r = await fetch(`${NETS_BASE}/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NETS_API_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
+  const interval = setInterval(async () => {
+    pollCount++;
 
-    const data = await r.json();
+    try {
+      const response = await axios.post(
+        'https://sandbox.nets.openapipaas.com/api/v1/common/payments/nets-qr/query',
+        {
+          txn_retrieval_ref: txnRetrievalRef,
+          frontend_timeout_status: 0
+        },
+        {
+          headers: {
+            'api-key': process.env.NETS_API_KEY,
+            'project-id': process.env.PROJECT_ID,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-    if (!r.ok) return res.status(500).json({ error: data });
+      const data = response.data?.result?.data;
+      res.write(`data: ${JSON.stringify(response.data)}\n\n`);
 
-    res.json({ qrUrl: data.qrCodeUrl });
-  } catch (err) {
-    console.error('NETS create-order error:', err);
-    res.status(500).json({ error: 'Failed to create NETS order' });
-  }
+      if (data?.response_code === "00" && data?.txn_status === 1) {
+        res.write(`data: ${JSON.stringify({ success: true })}\n\n`);
+        clearInterval(interval);
+        return res.end();
+      }
+
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ fail: true })}\n\n`);
+      clearInterval(interval);
+      return res.end();
+    }
+
+    if (pollCount >= maxPolls) {
+      res.write(`data: ${JSON.stringify({ fail: true, timeout: true })}\n\n`);
+      clearInterval(interval);
+      res.end();
+    }
+  }, 5000);
+
+  req.on('close', () => clearInterval(interval));
 });
 
+app.get('/nets-qr/success', checkAuthenticated, (req, res) => {
+  res.render('netstxnsuccessstatus', {
+    user: req.session.user
+  });
+});
+
+app.get('/nets-qr/fail', checkAuthenticated, (req, res) => {
+  res.render('netstxnfailstatus', {
+    user: req.session.user
+  });
+});
 
 
 

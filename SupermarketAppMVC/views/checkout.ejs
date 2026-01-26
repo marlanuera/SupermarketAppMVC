@@ -222,36 +222,20 @@
               }
             }).render("#paypal-button-container");
           </script>
+          <!-- 🔽 NETS BUTTON (THIS IS THE ONLY NEW PART) -->
+          <hr class="my-3">
 
-          <div id="nets-qr-container" class="qr-placeholder">Loading NETS QR...</div>
+          <form action="/generateNETSQR" method="POST">
+            <input type="hidden" name="cartTotal" value="<%= total.toFixed(2) %>">
+            <button type="submit" class="hb-btn hb-btn-outline w-100">
+              <i class="bi bi-qr-code-scan"></i>
+              Pay with NETS QR
+            </button>
+          </form>
 
-          <script>
-          async function loadNetsQR() {
-            try {
-              const res = await fetch('/nets/create-order', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ total: <%= total.toFixed(2) %>, orderId: Date.now() })
-              });
-
-              const data = await res.json();
-              const qrContainer = document.getElementById('nets-qr-container');
-
-              if (data.qrUrl) {
-                qrContainer.innerHTML = `<img src="${data.qrUrl}" alt="NETS QR" style="max-width:150px;">`;
-              } else {
-                qrContainer.innerText = "Failed to load NETS QR";
-              }
-            } catch (err) {
-              console.error('Frontend NETS error:', err);
-              document.getElementById('nets-qr-container').innerText = "Failed to load NETS QR";
-            }
-          }
-
-          loadNetsQR();
-
-          </script>
-
+          <p class="text-muted text-center mt-2" style="font-size:12px;">
+            You will be redirected to scan the NETS QR code
+          </p>
 
         </div>
 
