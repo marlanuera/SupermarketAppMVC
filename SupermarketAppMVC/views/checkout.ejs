@@ -8,6 +8,7 @@
   <!-- Bootstrap CSS & Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap">
 
   <!-- PayPal SDK -->
   <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>&currency=<%= paypalCurrency %>"></script>
@@ -50,6 +51,8 @@
     .hb-btn { padding:10px 16px; background:#FFA500; color:white; border:none; border-radius:20px; font-weight:700; display:inline-flex; align-items:center; gap:6px; justify-content:center; cursor:pointer; text-decoration:none; }
     .hb-btn:hover{ filter:brightness(0.97); }
     .hb-btn-outline { background:white; color:#FFA500; border:1px solid #FFA500; }
+    .hb-btn-compact { padding:7px 12px; font-size:13px; border-radius:16px; }
+    .wallet-meta { font-size:15px; font-weight:700; color:#2E8B57; }
 
     /* Tables */
     table.cart-table { background:white; border-radius:12px; padding:10px; box-shadow:0 2px 6px rgba(0,0,0,0.05); font-size:14px; display:block; max-height:300px; overflow-y:auto; table-layout: fixed; width:100%; }
@@ -89,31 +92,72 @@
           <div class="row g-3">
             <div class="col-md-6">
               <div class="hb-label">First Name</div>
-              <input class="hb-input" id="firstName" placeholder="First Name" value="<%= (user && user.firstName) || '' %>">
+              <input class="hb-input" id="firstName" placeholder="First Name" value="<%= (user && user.firstName) || '' %>" required>
             </div>
             <div class="col-md-6">
               <div class="hb-label">Last Name</div>
-              <input class="hb-input" id="lastName" placeholder="Last Name" value="<%= (user && user.lastName) || '' %>">
+              <input class="hb-input" id="lastName" placeholder="Last Name" value="<%= (user && user.lastName) || '' %>" required>
             </div>
             <div class="col-md-6">
               <div class="hb-label">Email</div>
-              <input class="hb-input" id="shippingEmail" placeholder="you@example.com">
+              <input class="hb-input" id="shippingEmail" placeholder="you@example.com" required>
             </div>
             <div class="col-md-6">
               <div class="hb-label">Contact Number</div>
-              <input class="hb-input" id="shippingPhone" placeholder="8-digit SG number">
+              <input class="hb-input" id="shippingPhone" placeholder="8-digit SG number" required>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">Building / Apartment Name (optional)</div>
+              <input class="hb-input" id="buildingName" placeholder="e.g., Sunnyside Towers">
             </div>
             <div class="col-md-6">
               <div class="hb-label">Postal Code</div>
-              <input class="hb-input" id="postalCode" placeholder="123456">
+              <input class="hb-input" id="postalCode" placeholder="123456" required>
             </div>
             <div class="col-md-6">
               <div class="hb-label">Apartment / Unit</div>
-              <input class="hb-input" id="aptUnit" placeholder="Blk 123, #12-34">
+              <input class="hb-input" id="aptUnit" placeholder="Blk 123, #12-34" required>
             </div>
             <div class="col-12">
               <div class="hb-label">Street Address</div>
-              <input class="hb-input" id="shippingAddress" placeholder="Street name, building">
+              <input class="hb-input" id="shippingAddress" placeholder="Street name, building" required>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">City</div>
+              <input class="hb-input" id="city" placeholder="City" required>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">State / Region</div>
+              <input class="hb-input" id="state" placeholder="State or Region" required>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">Country</div>
+              <input class="hb-input" id="country" placeholder="Country" required>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">Delivery Date (optional)</div>
+              <input class="hb-input" id="deliveryDate" type="date">
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">Time Slot (optional)</div>
+              <select class="hb-input" id="timeSlot">
+                <option value="">Select a time slot</option>
+                <option>9am - 12pm</option>
+                <option>12pm - 3pm</option>
+                <option>3pm - 6pm</option>
+                <option>6pm - 9pm</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <div class="hb-label">Pickup Option (optional)</div>
+              <select class="hb-input" id="pickupOption">
+                <option value="">Delivery</option>
+                <option>Self-collection</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <div class="hb-label">Delivery Instructions (optional)</div>
+              <textarea class="hb-input" id="deliveryInstructions" rows="2" placeholder="Leave at front desk, ring the bell twice, etc."></textarea>
             </div>
             <div class="col-12">
               <div class="hb-label">Additional Notes (optional)</div>
@@ -124,7 +168,6 @@
           <div class="mt-3 d-flex gap-2">
             <a href="/cart" class="hb-btn hb-btn-outline"><i class="bi bi-arrow-left"></i> Back to Cart</a>
           </div>
-          <div class="hb-note mt-2">Shipping details are for display only right now.</div>
         </div>
       </div>
 
@@ -161,9 +204,53 @@
           </div>
           <div class="summary-line"><span>Subtotal</span><span>$<%= subtotal.toFixed(2) %></span></div>
           <div class="summary-line"><span>Tax (9%)</span><span>$<%= tax.toFixed(2) %></span></div>
-          <div class="summary-total"><span>Total</span><span>$<%= total.toFixed(2) %></span></div>
+          <div class="summary-line"><span>Total</span><span>$<%= total.toFixed(2) %></span></div>
+          <div class="summary-line"><span>Wallet Applied</span><span>-$<%= walletApplied.toFixed(2) %></span></div>
+          <div class="summary-line"><span>Points Applied</span><span>-$<%= pointsDiscount.toFixed(2) %></span></div>
+          <div class="summary-total"><span>Total</span><span>$<%= payableTotal.toFixed(2) %></span></div>
         </div>
 
+        <!-- Sunnyside Wallet -->
+        <div class="card-paypal">
+          <div class="card-title"><i class="bi bi-wallet2"></i> Sunnyside Wallet</div>
+          <div class="mb-2 wallet-meta">
+            Balance: <strong>$<%= walletBalance.toFixed(2) %></strong>
+          </div>
+          <form action="/checkout/pay-wallet" method="POST">
+            <button type="submit" class="hb-btn hb-btn-outline hb-btn-compact w-100"><i class="bi bi-wallet2"></i> Pay with Sunnyside Wallet</button>
+          </form>
+          <% if (walletError) { %>
+            <div class="text-danger mt-2" style="font-size:12px;">Insufficient wallet balance. Please top up or use another payment method.</div>
+            <script>
+              alert('Insufficient wallet balance. Please top up or use another payment method.');
+            </script>
+          <% } %>
+        </div>
+
+        <!-- Points Rewards -->
+        <div class="card-paypal">
+          <div class="card-title"><i class="bi bi-gift"></i> Points Rewards <span class="pill">10 pts = $1</span></div>
+          <div class="mb-2 wallet-meta">
+            Points: <strong><%= pointsAvailable %></strong>
+          </div>
+          <div class="mb-2 text-muted" style="font-size:12px;">
+            Redeemable now: <strong><%= maxPointsRedeemable %></strong> pts = $<%= (maxPointsRedeemable * 0.10).toFixed(2) %>
+          </div>
+          <form action="/checkout/apply-rewards" method="POST" class="d-flex flex-column gap-2">
+            <input type="hidden" name="walletUseAmount" value="0">
+            <input type="hidden" name="pointsToRedeem" value="<%= maxPointsRedeemable %>">
+            <button type="submit" class="hb-btn hb-btn-compact w-100" <%= maxPointsRedeemable > 0 ? '' : 'disabled' %>>
+              <i class="bi bi-gift"></i> Redeem Points Reward
+            </button>
+          </form>
+          <form action="/checkout/apply-rewards" method="POST" class="mt-2">
+            <input type="hidden" name="walletUseAmount" value="0">
+            <input type="hidden" name="pointsToRedeem" value="0">
+            <button type="submit" class="hb-btn hb-btn-compact w-100">Clear Rewards</button>
+          </form>
+        </div>
+
+        <% if (payableTotal > 0) { %>
         <!-- PayPal Payment -->
         <div class="card-paypal">
           <div class="card-title"><i class="bi bi-paypal"></i> Pay with PayPal <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
@@ -173,7 +260,8 @@
           <script>
             const checkoutSubtotal = <%= subtotal.toFixed(2) %>;
             const checkoutTax = <%= tax.toFixed(2) %>;
-            const checkoutTotal = <%= total.toFixed(2) %>;
+            const checkoutTotal = <%= payableTotal.toFixed(2) %>;
+            const checkoutDiscount = <%= (total - payableTotal).toFixed(2) %>;
             const checkoutItems = <%- JSON.stringify(cart || []) %>;
 
             function getShippingName() {
@@ -188,6 +276,7 @@
                   subtotal: checkoutSubtotal,
                   tax: checkoutTax,
                   total: checkoutTotal,
+                  discount: checkoutDiscount,
                   shippingName: getShippingName()
                 };
 
@@ -213,7 +302,7 @@
                 if (!res.ok || !result.ok) throw new Error(result.error || "Payment capture failed");
 
                 document.getElementById("paypal-status").innerText = "Payment completed! Redirecting...";
-                window.location.href = '/receipt';
+                window.location.href = '/payment-success?method=paypal';
               },
 
               onError: (err) => {
@@ -225,27 +314,24 @@
           <!-- 🔽 NETS BUTTON (THIS IS THE ONLY NEW PART) -->
           <hr class="my-3">
 
-          <form action="/generateNETSQR" method="POST">
-            <input type="hidden" name="cartTotal" value="<%= total.toFixed(2) %>">
-            <button type="submit" class="hb-btn hb-btn-outline w-100">
-              <i class="bi bi-qr-code-scan"></i>
-              Pay with NETS QR
-            </button>
-          </form>
-
-          <p class="text-muted text-center mt-2" style="font-size:12px;">
-            You will be redirected to scan the NETS QR code
-          </p>
-
-          <hr class="my-3">
           <div class="card-paypal">
+            <div class="card-title"><i class="bi bi-qr-code-scan"></i> Pay with NETS QR <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
+            <form action="/generateNETSQR" method="POST">
+              <input type="hidden" name="cartTotal" value="<%= payableTotal.toFixed(2) %>">
+              <button type="submit" class="hb-btn hb-btn-outline w-100">
+                <i class="bi bi-qr-code-scan"></i>
+                Pay with NETS QR
+              </button>
+            </form>
+            <p class="text-muted text-center mt-2" style="font-size:12px;">
+              You will be redirected to scan the NETS QR code
+            </p>
+          </div>
+          <div class="card-paypal mt-3">
             <div class="card-title"><i class="bi bi-credit-card-2-front"></i> Pay with Stripe <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
             <button id="stripe-pay-button" class="hb-btn w-100">
               <i class="bi bi-credit-card-2-front"></i> Pay with Stripe
             </button>
-            <p class="text-muted text-center mt-2" style="font-size:12px;">
-              Stripe test mode: use card 4242 4242 4242 4242
-            </p>
           </div>
 
           <script src="https://js.stripe.com/v3/"></script>
@@ -267,6 +353,15 @@
 
 
         </div>
+        <% } else { %>
+        <div class="card-paypal">
+          <div class="card-title"><i class="bi bi-check-circle"></i> Wallet Covers Total</div>
+          <p class="text-muted mb-2" style="font-size:12px;">Your Sunnyside Wallet + points cover the full amount. Complete checkout with wallet.</p>
+          <form action="/checkout/complete-wallet" method="POST">
+            <button type="submit" class="hb-btn w-100"><i class="bi bi-wallet2"></i> Complete with Wallet</button>
+          </form>
+        </div>
+        <% } %>
 
       </div>
 

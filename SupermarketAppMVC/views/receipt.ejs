@@ -33,6 +33,13 @@
     .complete-note { text-align:center; margin-top:25px; font-size:16px; color:#2E8B57; font-weight:bold; }
     .hb-btn { padding:10px 16px; background:#FFA500; color:white; border:none; border-radius:20px; font-weight:700; display:inline-flex; align-items:center; gap:6px; justify-content:center; cursor:pointer; text-decoration:none; margin-top:20px; }
     .hb-btn:hover { filter:brightness(0.97); }
+
+    @media print {
+      nav.navbar { display: none !important; }
+      .no-print { display: none !important; }
+      body { background: white; }
+      .receipt-container { box-shadow: none; margin: 0; }
+    }
   </style>
 </head>
 <body>
@@ -44,8 +51,8 @@
     <div class="receipt-underline"></div>
 
     <!-- Order Info -->
-    <div class="summary-line"><strong>Order ID:</strong> <span><%= order._id %></span></div>
-    <div class="summary-line"><strong>Placed on:</strong> <span><%= order.createdAt.toLocaleString() %></span></div>
+    <div class="summary-line"><strong>Order ID:</strong> <span><%= order.id %></span></div>
+    <div class="summary-line"><strong>Placed on:</strong> <span><%= order.orderDate.toLocaleString() %></span></div>
     <div class="summary-line"><strong>Shipping To:</strong> <span><%= order.shippingAddress %></span></div>
 
     <!-- Items -->
@@ -59,7 +66,7 @@
         </tr>
       </thead>
       <tbody>
-        <% order.items.forEach(item => { %>
+        <% items.forEach(item => { %>
         <tr>
           <td>
             <img src="/images/<%= item.image %>" alt="<%= item.productName %>"><br>
@@ -73,13 +80,14 @@
       </tbody>
     </table>
 
-    <div class="summary-line"><span>Subtotal</span><span>$<%= order.subtotal.toFixed(2) %></span></div>
-    <div class="summary-line"><span>Tax</span><span>$<%= order.tax.toFixed(2) %></span></div>
-    <div class="summary-total"><span>Total</span><span>$<%= order.total.toFixed(2) %></span></div>
+    <div class="summary-line"><span>Subtotal</span><span>$<%= subtotal.toFixed(2) %></span></div>
+    <div class="summary-line"><span>Tax</span><span>$<%= tax.toFixed(2) %></span></div>
+    <div class="summary-total"><span>Total</span><span>$<%= total.toFixed(2) %></span></div>
 
     <div class="complete-note">Your order is now complete! 🎉</div>
 
-    <div style="text-align:center;">
+    <div class="no-print" style="text-align:center; display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+      <button type="button" class="hb-btn" onclick="window.print()"><i class="bi bi-printer"></i> Print Invoice</button>
       <a href="/shopping" class="hb-btn"><i class="bi bi-bag-check"></i> Continue Shopping</a>
     </div>
   </div>

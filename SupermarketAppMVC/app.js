@@ -11,6 +11,37 @@ const fetch = require('node-fetch'); // at the top of app.js if not already impo
 const axios = require('axios');
 const netsQr = require('./services/nets');
 const stripeService = require('./services/stripe');
+const PAYPAL_CLIENT = process.env.PAYPAL_CLIENT_ID;
+const PAYPAL_SECRET = process.env.PAYPAL_CLIENT_SECRET;
+const PAYPAL_API = process.env.PAYPAL_API_BASE || "https://api-m.sandbox.paypal.com";
+
+async function getPayPalAccessToken() {
+    const res = await fetch(`${PAYPAL_API}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+            Authorization: "Basic " + Buffer.from(PAYPAL_CLIENT + ":" + PAYPAL_SECRET).toString("base64"),
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: "grant_type=client_credentials"
+    });
+    const data = await res.json();
+    return data.access_token;
+}
+
+async function ensureWalletRow(userId) {
+    const [[row]] = await db.promise().query(
+        'SELECT balance, points FROM wallets WHERE user_id = ?',
+        [userId]
+    );
+    if (!row) {
+        await db.promise().query(
+            'INSERT INTO wallets (user_id, balance, points) VALUES (?, 0, 0)',
+            [userId]
+        );
+        return { balance: 0, points: 0 };
+    }
+    return row;
+}
 
 
 
@@ -247,8 +278,25 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
         `, [userId]);
 
         if (!cartItems || cartItems.length === 0) {
-            return res.render('checkout', { cart: [], subtotal: 0, tax: 0, total: 0, user: req.session.user });
+            return res.render('checkout', { 
+                cart: [], 
+                subtotal: 0, 
+                tax: 0, 
+                total: 0, 
+                payableTotal: 0,
+                walletBalance: 0,
+                walletApplied: 0,
+                pointsAvailable: 0,
+                pointsToRedeem: 0,
+                pointsDiscount: 0,
+                maxPointsRedeemable: 0,
+                user: req.session.user 
+            });
         }
+
+        const walletRow = await ensureWalletRow(userId);
+        const walletBalance = Number(walletRow.balance) || 0;
+        const pointsAvailable = Number(walletRow.points) || 0;
 
         // Calculate totals
         let subtotal = 0;
@@ -256,15 +304,107 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
         const tax = subtotal * 0.08;
         const total = subtotal + tax;
 
+        const walletUseRaw = Number(req.session.walletUseAmount || 0);
+        const walletApplied = Math.max(0, Math.min(walletUseRaw || 0, walletBalance, total));
+        const remainingAfterWallet = Math.max(0, total - walletApplied);
+
+        const pointsToRedeemRaw = parseInt(req.session.pointsToRedeem || 0);
+        const pointsToRedeemUnrounded = Math.max(0, Math.min(pointsToRedeemRaw || 0, pointsAvailable));
+        const pointsToRedeem = Math.floor(pointsToRedeemUnrounded / 10) * 10;
+        const pointsValue = pointsToRedeem * 0.10; // 10 points = $1
+        const pointsDiscount = Math.min(pointsValue, remainingAfterWallet);
+        const payableTotal = Math.max(0, remainingAfterWallet - pointsDiscount);
+        const maxPointsByTotal = Math.floor(remainingAfterWallet / 0.10);
+        const maxPointsRedeemable = Math.floor(Math.min(pointsAvailable, maxPointsByTotal) / 10) * 10;
+
+        req.session.walletUseAmount = walletApplied;
+        req.session.pointsToRedeem = pointsToRedeem;
+        req.session.pointsDiscount = pointsDiscount;
+        req.session.payableTotal = payableTotal;
+
         // Save cart in session for payment
         req.session.cart = cartItems;
 
-        res.render('checkout', { cart: cartItems, subtotal, tax, total, user: req.session.user, paypalClientId: process.env.PAYPAL_CLIENT_ID,
-    paypalCurrency: 'SGD' });
+        res.render('checkout', { 
+            cart: cartItems, 
+            subtotal, 
+            tax, 
+            total, 
+            payableTotal,
+            walletBalance,
+            walletApplied,
+            pointsAvailable,
+            pointsToRedeem,
+            pointsDiscount,
+            maxPointsRedeemable,
+            walletError: req.query.walletError === '1',
+            user: req.session.user, 
+            paypalClientId: process.env.PAYPAL_CLIENT_ID,
+            paypalCurrency: 'SGD'
+        });
     } catch (err) {
         console.error(err);
         res.send('Error loading checkout page');
     }
+});
+
+app.post('/checkout/apply-rewards', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const pointsRequested = parseInt(req.body.pointsToRedeem || 0);
+        const walletRequested = Number(req.body.walletUseAmount || 0);
+
+        const walletRow = await ensureWalletRow(userId);
+        const pointsAvailable = Number(walletRow.points) || 0;
+        const walletBalance = Number(walletRow.balance) || 0;
+        const pointsRaw = isNaN(pointsRequested) ? 0 : Math.max(0, Math.min(pointsRequested, pointsAvailable));
+        const pointsToRedeem = Math.floor(pointsRaw / 10) * 10;
+        const walletUseAmount = isNaN(walletRequested) ? 0 : Math.max(0, Math.min(walletRequested, walletBalance));
+
+        req.session.pointsToRedeem = pointsToRedeem;
+        req.session.walletUseAmount = walletUseAmount;
+        res.redirect('/checkout');
+    } catch (err) {
+        console.error('Error applying points:', err);
+        res.redirect('/checkout');
+    }
+});
+
+app.post('/checkout/pay-wallet', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const cart = req.session.cart || [];
+        if (!cart.length) return res.redirect('/checkout');
+
+        let subtotal = 0;
+        cart.forEach(item => subtotal += item.price * item.quantity);
+        const tax = subtotal * 0.08;
+        const total = subtotal + tax;
+
+        const pointsDiscount = Number(req.session.pointsDiscount || 0);
+        const orderTotal = Math.max(0, total - pointsDiscount);
+
+        const walletRow = await ensureWalletRow(userId);
+        const walletBalance = Number(walletRow.balance) || 0;
+
+        if (walletBalance < orderTotal) {
+            return res.redirect('/checkout?walletError=1');
+        }
+
+        req.session.walletUseAmount = orderTotal;
+        req.session.payableTotal = 0;
+
+        res.redirect('/payment-success?method=wallet');
+    } catch (err) {
+        console.error('Wallet checkout error:', err);
+        res.redirect('/checkout');
+    }
+});
+
+app.post('/checkout/complete-wallet', checkAuthenticated, (req, res) => {
+    const payableTotal = Number(req.session.payableTotal || 0);
+    if (payableTotal > 0) return res.redirect('/checkout');
+    res.redirect('/payment-success?method=wallet');
 });
 
 
@@ -646,10 +786,12 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, async (req, res)
     const cart = req.session.cart || [];
     if (!cart.length) return res.status(400).json({ error: 'Cart empty' });
 
+    const payableTotal = Number(req.session.payableTotal || 0);
     const session = await stripeService.createCheckoutSession(
       cart,
-      'http://localhost:3000/receipt', // success URL
-      'http://localhost:3000/checkout' // cancel URL
+      'http://localhost:3000/payment-success', // success URL
+      'http://localhost:3000/checkout', // cancel URL
+      payableTotal
     );
 
     res.json({ id: session.id });
@@ -659,28 +801,383 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, async (req, res)
   }
 });
 
-
-// Route to render receipt after PayPal payment
-app.get('/receipt', async (req, res) => {
+app.get('/payment-success', checkAuthenticated, async (req, res) => {
   try {
-    const orderId = req.session.lastOrderId;
-    if (!orderId) return res.redirect('/shopping'); // fallback
+    const cart = req.session.cart || [];
+    if (!cart.length) return res.redirect('/shopping');
 
-    const order = await Order.findById(orderId);
-    if (!order) return res.redirect('/shopping');
+    const userId = req.session.user.id;
 
-    order.status = 'Completed';
-    await order.save();
+    let subtotal = 0;
+    cart.forEach(item => subtotal += item.price * item.quantity);
+    const tax = subtotal * 0.08;
+    const total = subtotal + tax;
+    const pointsToRedeem = Number(req.session.pointsToRedeem || 0);
+    const pointsDiscount = Number(req.session.pointsDiscount || 0);
+    const walletUseRequested = Number(req.session.walletUseAmount || 0);
+    const orderTotal = Math.max(0, total - pointsDiscount);
+    const payableTotal = Math.max(0, orderTotal - walletUseRequested);
 
+    // 1️⃣ Create order
+    const [orderResult] = await db.promise().query(
+      'INSERT INTO orders (userId, totalAmount, orderDate, status) VALUES (?, ?, NOW(), ?)',
+      [userId, orderTotal, 'Completed']
+    );
+
+    const orderId = orderResult.insertId;
+
+    // 2️⃣ Insert order items
+    for (let item of cart) {
+      await db.promise().query(
+        'INSERT INTO orderitems (orderId, productId, quantity, price) VALUES (?, ?, ?, ?)',
+        [orderId, item.productId, item.quantity, item.price]
+      );
+
+      await db.promise().query(
+        'UPDATE products SET quantity = quantity - ? WHERE id = ?',
+        [item.quantity, item.productId]
+      );
+    }
+
+    // 3️⃣ Clear cart
+    await db.promise().query('DELETE FROM cartitems WHERE userId = ?', [userId]);
     req.session.cart = [];
-    req.session.lastOrderId = null;
 
-    res.render('receipt', { order }); // render receipt page
+    // 3.5️⃣ Update points (earn + redeem)
+    const walletRow = await ensureWalletRow(userId);
+    const pointsAvailable = Number(walletRow.points) || 0;
+    const walletBalance = Number(walletRow.balance) || 0;
+    const walletUsed = Math.max(0, Math.min(walletUseRequested, walletBalance, orderTotal));
+    const pointsToUse = Math.max(0, Math.min(pointsToRedeem, pointsAvailable));
+    const pointsEarned = Math.floor(orderTotal); // $1 spent = 1 point
+    const newPoints = Math.max(0, pointsAvailable - pointsToUse + pointsEarned);
+
+    await db.promise().query(
+      'UPDATE wallets SET balance = balance - ?, points = ? WHERE user_id = ?',
+      [walletUsed, newPoints, userId]
+    );
+
+    if (walletUsed > 0) {
+      await db.promise().query(
+        `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+         VALUES (?, 'Payment', 'Wallet', ?, 'SGD', 'Completed', NOW())`,
+        [userId, walletUsed]
+      );
+    }
+
+    if (pointsToUse > 0) {
+      const pointsValue = pointsToUse * 0.10;
+      await db.promise().query(
+        `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+         VALUES (?, 'Redeem', 'Points', ?, 'SGD', 'Completed', NOW())`,
+        [userId, pointsValue]
+      );
+    }
+
+    req.session.pointsToRedeem = 0;
+    req.session.pointsDiscount = 0;
+    req.session.walletUseAmount = 0;
+    req.session.payableTotal = 0;
+
+    // 4️⃣ Redirect to receipt with orderId
+    res.redirect(`/receipt/${orderId}`);
+
   } catch (err) {
     console.error(err);
     res.redirect('/shopping');
   }
 });
+
+
+/* -------------------- WALLET -------------------- */
+
+app.get('/wallet', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+
+        // Get wallet balance and points
+        const walletRow = await ensureWalletRow(userId);
+        const walletBalance = walletRow ? Number(walletRow.balance) : 0;
+        const points = walletRow ? Number(walletRow.points) : 0;
+
+        // Get transactions
+        const [txRows] = await db.promise().query(
+            'SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC',
+            [userId]
+        );
+        const transactions = txRows.map(tx => ({
+            ...tx,
+            amount: Number(tx.amount) || 0,
+            created_at: tx.created_at ? new Date(tx.created_at) : null
+        }));
+
+        res.render('wallet', { 
+            walletBalance, 
+            points, 
+            transactions, 
+            user: req.session.user,
+            paypalClientId: process.env.PAYPAL_CLIENT_ID,
+            stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+        });
+
+    } catch (err) {
+        console.error('Error loading wallet:', err);
+        res.send('Error loading wallet');
+    }
+});
+
+// -------------- Wallet Top-Up via PayPal --------------
+app.post('/wallet/topup/paypal', checkAuthenticated, async (req, res) => {
+    try {
+        const amount = parseFloat(req.body.amount);
+        if (isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid amount' });
+        }
+
+        const accessToken = await getPayPalAccessToken();
+        const order = {
+            intent: "CAPTURE",
+            purchase_units: [{
+                amount: {
+                    currency_code: "SGD",
+                    value: amount.toFixed(2)
+                },
+                description: "Wallet Top-Up"
+            }]
+        };
+
+        const response = await fetch(`${PAYPAL_API}/v2/checkout/orders`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(order)
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            return res.status(500).json({ error: 'Failed to create PayPal order', details: data });
+        }
+        res.json({ id: data.id });
+    } catch (err) {
+        console.error('PayPal top-up create error:', err);
+        res.status(500).json({ error: 'Failed to create PayPal order' });
+    }
+});
+
+app.post('/wallet/topup/paypal/capture', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const { orderId } = req.body;
+        if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
+
+        const accessToken = await getPayPalAccessToken();
+        const response = await fetch(`${PAYPAL_API}/v2/checkout/orders/${orderId}/capture`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json"
+            }
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            return res.status(500).json({ ok: false, error: 'Payment capture failed', details: data });
+        }
+
+        const capture = data?.purchase_units?.[0]?.payments?.captures?.[0];
+        const amount = capture ? Number(capture.amount.value) : NaN;
+        if (isNaN(amount) || amount <= 0) {
+            return res.status(500).json({ ok: false, error: 'Invalid captured amount' });
+        }
+
+        await ensureWalletRow(userId);
+        await db.promise().query(
+            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            [amount, userId]
+        );
+
+        await db.promise().query(
+            `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+             VALUES (?, 'Top-Up', 'PayPal', ?, 'SGD', 'Completed', NOW())`,
+            [userId, amount]
+        );
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('PayPal top-up capture error:', err);
+        res.status(500).json({ ok: false, error: 'Payment capture failed' });
+    }
+});
+
+app.post('/wallet/add/paypal', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const amount = parseFloat(req.body.amount);
+
+        if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
+
+        await ensureWalletRow(userId);
+        // Update wallet balance
+        await db.promise().query(
+            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            [amount, userId]
+        );
+
+        // Record transaction
+        await db.promise().query(
+            `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+             VALUES (?, 'Top-Up', 'PayPal', ?, 'SGD', 'Completed', NOW())`,
+            [userId, amount]
+        );
+
+        res.redirect('/wallet');
+
+    } catch (err) {
+        console.error('Error top-up via PayPal:', err);
+        res.send('Error processing top-up');
+    }
+});
+
+// -------------- Wallet Top-Up via Stripe --------------
+app.post('/wallet/add/stripe', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const amount = parseFloat(req.body.amount);
+
+        if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
+
+        await ensureWalletRow(userId);
+        // Create Stripe checkout session
+        const session = await stripeService.createCheckoutSession(
+            [{ productName: 'Wallet Top-Up', price: amount, quantity: 1 }],
+            `http://localhost:3000/wallet/stripe-success?amount=${amount}`,
+            'http://localhost:3000/wallet'
+        );
+
+        res.json({ id: session.id });
+
+    } catch (err) {
+        console.error('Stripe top-up error:', err);
+        res.status(500).json({ error: 'Failed to create Stripe session' });
+    }
+});
+
+// -------------- Stripe success redirect --------------
+app.get('/wallet/stripe-success', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const amount = parseFloat(req.query.amount);
+
+        if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
+
+        await ensureWalletRow(userId);
+        // Update wallet balance
+        await db.promise().query(
+            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            [amount, userId]
+        );
+
+        // Record transaction
+        await db.promise().query(
+            `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+             VALUES (?, 'Top-Up', 'Stripe', ?, 'SGD', 'Completed', NOW())`,
+            [userId, amount]
+        );
+
+        res.redirect('/wallet');
+    } catch (err) {
+        console.error('Stripe success handling error:', err);
+        res.send('Error processing Stripe payment');
+    }
+});
+
+// -------------- Redeem Points --------------
+app.post('/wallet/redeem', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const pointsToRedeem = parseInt(req.body.pointsToRedeem);
+
+        if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) return res.send('Invalid points');
+
+        await ensureWalletRow(userId);
+        // Get current points
+        const [[wallet]] = await db.promise().query(
+            'SELECT points, balance FROM wallets WHERE user_id = ?',
+            [userId]
+        );
+
+        const redeemablePoints = Math.floor(pointsToRedeem / 10) * 10;
+        if (redeemablePoints < 10) return res.send('Minimum redeem is 10 points');
+        if (!wallet || wallet.points < redeemablePoints) return res.send('Not enough points');
+
+        // 10 points = $1.00
+        const value = redeemablePoints * 0.10;
+
+        // Update wallet and deduct points
+        await db.promise().query(
+            'UPDATE wallets SET balance = balance + ?, points = points - ? WHERE user_id = ?',
+            [value, redeemablePoints, userId]
+        );
+
+        // Record transaction
+        await db.promise().query(
+            `INSERT INTO transactions (user_id, type, method, amount, currency, status, created_at)
+             VALUES (?, 'Redeem', 'Points', ?, 'SGD', 'Completed', NOW())`,
+            [userId, value]
+        );
+
+        res.redirect('/wallet');
+
+    } catch (err) {
+        console.error('Error redeeming points:', err);
+        res.send('Error redeeming points');
+    }
+});
+
+
+
+
+// Route to render receipt after PayPal payment
+app.get('/receipt/:id', checkAuthenticated, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const userId = req.session.user.id;
+
+    const [[order]] = await db.promise().query(
+      'SELECT * FROM orders WHERE id = ? AND userId = ?',
+      [orderId, userId]
+    );
+
+    if (!order) return res.redirect('/shopping');
+
+    const [items] = await db.promise().query(`
+      SELECT oi.quantity, oi.price, p.productName, p.image
+      FROM orderitems oi
+      JOIN products p ON oi.productId = p.id
+      WHERE oi.orderId = ?
+    `, [orderId]);
+
+    const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const tax = subtotal * 0.08;
+    const total = subtotal + tax;
+    res.render('receipt', {
+      order,
+      items,
+      subtotal,
+      tax,
+      total,
+      user: req.session.user
+    });
+
+
+  } catch (err) {
+    console.error(err);
+    res.redirect('/shopping');
+  }
+});
+
 
 
 

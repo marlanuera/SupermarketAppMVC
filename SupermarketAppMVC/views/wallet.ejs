@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sunnyside Wallet - SunnySide Market</title>
+
+  <!-- Bootstrap CSS & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap">
+
+  <!-- PayPal SDK -->
+  <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>&currency=SGD"></script>
+
+  <style>
+    body { background-color: #FFFBEA; font-family: Arial, sans-serif; margin:0; padding-bottom:50px; }
+
+    nav.navbar { background-color: #2E8B57 !important; }
+    nav .navbar-brand { font-family: 'Pacifico', cursive; font-size: 1.8rem; color: white !important; }
+    nav .nav-link { color: white !important; font-weight: bold; }
+    nav .nav-link:hover { background-color: #FFD54F; color: black !important; border-radius: 5px; }
+
+    .checkout-title { text-align:center; font-size:28px; color:#2E8B57; margin:20px 0 5px; font-weight:bold; }
+    .checkout-sub { text-align:center; font-size:14px; color:#6b6b6b; margin-bottom:10px; }
+    .checkout-underline { width:70px; height:3px; background:#FFA500; margin:0 auto 25px; border-radius:99px; }
+
+    .card-summary, .card-paypal { background:white; border-radius:12px; padding:16px; box-shadow:0 2px 6px rgba(0,0,0,0.05); border:1px solid #eee; margin-bottom:20px; font-size:14px; }
+    .card-title { font-size:18px; color:#2E8B57; display:flex; align-items:center; gap:10px; margin-bottom:12px; font-weight:bold; }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#FFF5E1; border:1px solid #FFE2A6; border-radius:999px; font-size:12px; color:#7a5a00; font-weight: normal; }
+
+    .hb-input { border-radius:12px; border:1px solid #eee; padding:10px 12px; font-size:14px; width:100%; }
+    .hb-input:focus { border-color:#FFA500; box-shadow:0 0 0 0.15rem rgba(255,165,0,0.2); outline:none; }
+
+    .hb-btn { padding:10px 16px; background:#FFA500; color:white; border:none; border-radius:20px; font-weight:700; display:inline-flex; align-items:center; gap:6px; justify-content:center; cursor:pointer; text-decoration:none; }
+    .hb-btn:hover{ filter:brightness(0.97); }
+    .hb-btn-outline { background:white; color:#FFA500; border:1px solid #FFA500; }
+    .hb-btn-slim { padding:8px 12px; font-size:13px; border-radius:16px; }
+
+    ul.list-group { max-height:300px; overflow-y:auto; }
+
+    .wallet-hero { background:linear-gradient(135deg, #FFF5E1 0%, #FFFBEA 50%, #ffffff 100%); border:1px solid #FFE2A6; border-radius:16px; padding:18px 20px; margin-bottom:20px; }
+    .balance-amount { font-size:36px; font-weight:900; color:#2E8B57; letter-spacing:0.5px; }
+    .balance-sub { font-size:12px; color:#7a5a00; }
+    .points-badge { background:#2E8B57; color:white; border-radius:999px; padding:6px 12px; font-size:12px; font-weight:700; display:inline-flex; align-items:center; gap:6px; }
+    .wallet-grid { display:grid; grid-template-columns: 1.2fr 1fr; gap:20px; }
+    @media (max-width: 900px){ .wallet-grid { grid-template-columns: 1fr; } }
+    .topup-actions { display:grid; grid-template-columns: 1fr 180px; gap:10px; align-items:center; }
+    @media (max-width: 520px){ .topup-actions { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <%- include('partials/navbar') %>
+
+  <div class="container my-4" style="max-width:800px;">
+    <h2 class="checkout-title">Your Sunnyside Wallet</h2>
+    <div class="checkout-sub">Manage your balance & points</div>
+    <div class="checkout-underline"></div>
+
+    <!-- Balance & Points -->
+    <div class="wallet-hero">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="balance-sub">Available Balance</div>
+          <div class="balance-amount">$<%= walletBalance.toFixed(2) %></div>
+        </div>
+        <div class="points-badge"><i class="bi bi-stars"></i> <%= points %> points</div>
+      </div>
+      <div class="balance-sub mt-2">Redeem 50 pts = $5, 100 pts = $10 (10 pts = $1)</div>
+    </div>
+
+    <div class="wallet-grid">
+      <div>
+        <!-- Top-Up -->
+        <div class="card-paypal p-3 mb-3">
+          <div class="card-title"><i class="bi bi-plus-circle"></i> Top-Up Balance</div>
+          <input type="number" id="topup-amount" min="1" step="0.01" placeholder="Enter amount (SGD)" class="hb-input mb-2">
+          <div class="topup-actions">
+            <div id="paypal-wallet-button"></div>
+            <button id="stripe-topup-button" class="hb-btn hb-btn-slim"><i class="bi bi-credit-card-2-front"></i> Pay with Stripe</button>
+          </div>
+          <div id="wallet-topup-status" class="mt-2"></div>
+        </div>
+
+        <!-- Redeem Points -->
+        <div class="card-paypal p-3 mb-3">
+          <div class="card-title"><i class="bi bi-gift"></i> Redeem Points</div>
+          <form action="/wallet/redeem" method="POST">
+            <input type="number" name="pointsToRedeem" min="10" step="1" placeholder="Enter points to redeem" class="hb-input mb-2">
+            <button type="submit" class="hb-btn w-100">Convert Points to Balance</button>
+          </form>
+          <div class="text-muted mt-2" style="font-size:12px;">10 points = $1 credited to wallet</div>
+        </div>
+      </div>
+
+      <!-- Transactions -->
+      <div class="card-summary p-3">
+        <div class="card-title"><i class="bi bi-clock-history"></i> Transactions</div>
+        <ul class="list-group">
+          <% if(transactions.length === 0) { %>
+            <li class="list-group-item">No transactions yet.</li>
+          <% } else { %>
+            <% transactions.forEach(tx => { %>
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><%= tx.type %> - <%= tx.method %></span>
+                <span>$<%= tx.amount.toFixed(2) %> | <%= new Date(tx.created_at).toLocaleString() %></span>
+              </li>
+            <% }) %>
+          <% } %>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <!-- PayPal -->
+  <script>
+    paypal.Buttons({
+      createOrder: async () => {
+        const amount = parseFloat(document.getElementById('topup-amount').value);
+        if(!amount || amount <= 0){
+          document.getElementById('wallet-topup-status').innerText = "Enter a valid top-up amount.";
+          throw new Error("Invalid amount");
+        }
+        const res = await fetch('/wallet/topup/paypal', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ amount })
+        });
+        const data = await res.json();
+        return data.id;
+      },
+      onApprove: async (data) => {
+        const res = await fetch('/wallet/topup/paypal/capture', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ orderId: data.orderID })
+        });
+        const result = await res.json();
+        if(result.ok){
+          document.getElementById('wallet-topup-status').innerText = "Top-up successful! Updating balance...";
+          location.reload();
+        } else {
+          document.getElementById('wallet-topup-status').innerText = "Top-up failed!";
+        }
+      }
+    }).render("#paypal-wallet-button");
+
+    // Stripe
+    const stripe = Stripe('<%= stripePublishableKey %>');
+    document.getElementById('stripe-topup-button').addEventListener('click', async ()=>{
+      const amount = parseFloat(document.getElementById('topup-amount').value);
+      if(!amount || amount<=0){ alert("Enter a valid amount"); return; }
+
+      const res = await fetch('/wallet/add/stripe', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ amount })
+      });
+      const data = await res.json();
+      if(data.id) stripe.redirectToCheckout({ sessionId: data.id });
+      else alert('Stripe checkout failed');
+    });
+  </script>
+</body>
+</html>

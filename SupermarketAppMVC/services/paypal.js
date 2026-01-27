@@ -22,10 +22,18 @@ async function getAccessToken() {
 
 // create order
 router.post('/create-order', async (req, res) => {
-  const { items, subtotal, tax, total, shippingName } = req.body;
+  const { items, subtotal, tax, total, discount = 0, shippingName } = req.body;
 
   try {
     const accessToken = await getAccessToken();
+
+    const breakdown = {
+      item_total: { currency_code: "SGD", value: subtotal.toFixed(2) },
+      tax_total: { currency_code: "SGD", value: tax.toFixed(2) }
+    };
+    if (discount && discount > 0) {
+      breakdown.discount = { currency_code: "SGD", value: Number(discount).toFixed(2) };
+    }
 
     const order = {
       intent: "CAPTURE",
@@ -33,10 +41,7 @@ router.post('/create-order', async (req, res) => {
         amount: {
           currency_code: "SGD",
           value: total.toFixed(2),
-          breakdown: {
-            item_total: { currency_code: "SGD", value: subtotal.toFixed(2) },
-            tax_total: { currency_code: "SGD", value: tax.toFixed(2) }
-          }
+          breakdown
         },
         items: items.map(i => ({
           name: i.productName,
