@@ -11,6 +11,7 @@ const fetch = require('node-fetch'); // at the top of app.js if not already impo
 const axios = require('axios');
 const netsQr = require('./services/nets');
 const stripeService = require('./services/stripe');
+const walletService = require('./services/wallet');
 const PAYPAL_CLIENT = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_SECRET = process.env.PAYPAL_CLIENT_SECRET;
 const PAYPAL_API = process.env.PAYPAL_API_BASE || "https://api-m.sandbox.paypal.com";
@@ -28,20 +29,6 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
-async function ensureWalletRow(userId) {
-    const [[row]] = await db.promise().query(
-        'SELECT balance, points FROM wallets WHERE user_id = ?',
-        [userId]
-    );
-    if (!row) {
-        await db.promise().query(
-            'INSERT INTO wallets (user_id, balance, points) VALUES (?, 0, 0)',
-            [userId]
-        );
-        return { balance: 0, points: 0 };
-    }
-    return row;
-}
 
 
 
@@ -294,7 +281,7 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
             });
         }
 
-        const walletRow = await ensureWalletRow(userId);
+        const walletRow = await walletService.ensureWalletRow(userId);
         const walletBalance = Number(walletRow.balance) || 0;
         const pointsAvailable = Number(walletRow.points) || 0;
 
@@ -354,7 +341,7 @@ app.post('/checkout/apply-rewards', checkAuthenticated, async (req, res) => {
         const pointsRequested = parseInt(req.body.pointsToRedeem || 0);
         const walletRequested = Number(req.body.walletUseAmount || 0);
 
-        const walletRow = await ensureWalletRow(userId);
+        const walletRow = await walletService.ensureWalletRow(userId);
         const pointsAvailable = Number(walletRow.points) || 0;
         const walletBalance = Number(walletRow.balance) || 0;
         const pointsRaw = isNaN(pointsRequested) ? 0 : Math.max(0, Math.min(pointsRequested, pointsAvailable));
@@ -384,7 +371,7 @@ app.post('/checkout/pay-wallet', checkAuthenticated, async (req, res) => {
         const pointsDiscount = Number(req.session.pointsDiscount || 0);
         const orderTotal = Math.max(0, total - pointsDiscount);
 
-        const walletRow = await ensureWalletRow(userId);
+        const walletRow = await walletService.ensureWalletRow(userId);
         const walletBalance = Number(walletRow.balance) || 0;
 
         if (walletBalance < orderTotal) {
@@ -844,7 +831,7 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     req.session.cart = [];
 
     // 3.5️⃣ Update points (earn + redeem)
-    const walletRow = await ensureWalletRow(userId);
+    const walletRow = await walletService.ensureWalletRow(userId);
     const pointsAvailable = Number(walletRow.points) || 0;
     const walletBalance = Number(walletRow.balance) || 0;
     const walletUsed = Math.max(0, Math.min(walletUseRequested, walletBalance, orderTotal));
@@ -853,7 +840,7 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     const newPoints = Math.max(0, pointsAvailable - pointsToUse + pointsEarned);
 
     await db.promise().query(
-      'UPDATE wallets SET balance = balance - ?, points = ? WHERE user_id = ?',
+      'UPDATE wallets SET balance = balance - ?, points = ?, updated_at = NOW() WHERE user_id = ?',
       [walletUsed, newPoints, userId]
     );
 
@@ -896,7 +883,7 @@ app.get('/wallet', checkAuthenticated, async (req, res) => {
         const userId = req.session.user.id;
 
         // Get wallet balance and points
-        const walletRow = await ensureWalletRow(userId);
+        const walletRow = await walletService.ensureWalletRow(userId);
         const walletBalance = walletRow ? Number(walletRow.balance) : 0;
         const points = walletRow ? Number(walletRow.points) : 0;
 
@@ -992,9 +979,9 @@ app.post('/wallet/topup/paypal/capture', checkAuthenticated, async (req, res) =>
             return res.status(500).json({ ok: false, error: 'Invalid captured amount' });
         }
 
-        await ensureWalletRow(userId);
+        await walletService.ensureWalletRow(userId);
         await db.promise().query(
-            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            'UPDATE wallets SET balance = balance + ?, updated_at = NOW() WHERE user_id = ?',
             [amount, userId]
         );
 
@@ -1018,10 +1005,10 @@ app.post('/wallet/add/paypal', checkAuthenticated, async (req, res) => {
 
         if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
 
-        await ensureWalletRow(userId);
+        await walletService.ensureWalletRow(userId);
         // Update wallet balance
         await db.promise().query(
-            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            'UPDATE wallets SET balance = balance + ?, updated_at = NOW() WHERE user_id = ?',
             [amount, userId]
         );
 
@@ -1048,7 +1035,7 @@ app.post('/wallet/add/stripe', checkAuthenticated, async (req, res) => {
 
         if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
 
-        await ensureWalletRow(userId);
+        await walletService.ensureWalletRow(userId);
         // Create Stripe checkout session
         const session = await stripeService.createCheckoutSession(
             [{ productName: 'Wallet Top-Up', price: amount, quantity: 1 }],
@@ -1072,10 +1059,10 @@ app.get('/wallet/stripe-success', checkAuthenticated, async (req, res) => {
 
         if (isNaN(amount) || amount <= 0) return res.send('Invalid amount');
 
-        await ensureWalletRow(userId);
+        await walletService.ensureWalletRow(userId);
         // Update wallet balance
         await db.promise().query(
-            'UPDATE wallets SET balance = balance + ? WHERE user_id = ?',
+            'UPDATE wallets SET balance = balance + ?, updated_at = NOW() WHERE user_id = ?',
             [amount, userId]
         );
 
@@ -1101,7 +1088,7 @@ app.post('/wallet/redeem', checkAuthenticated, async (req, res) => {
 
         if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) return res.send('Invalid points');
 
-        await ensureWalletRow(userId);
+        await walletService.ensureWalletRow(userId);
         // Get current points
         const [[wallet]] = await db.promise().query(
             'SELECT points, balance FROM wallets WHERE user_id = ?',
@@ -1117,7 +1104,7 @@ app.post('/wallet/redeem', checkAuthenticated, async (req, res) => {
 
         // Update wallet and deduct points
         await db.promise().query(
-            'UPDATE wallets SET balance = balance + ?, points = points - ? WHERE user_id = ?',
+            'UPDATE wallets SET balance = balance + ?, points = points - ?, updated_at = NOW() WHERE user_id = ?',
             [value, redeemablePoints, userId]
         );
 
