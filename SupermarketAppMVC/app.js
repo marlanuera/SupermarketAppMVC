@@ -10,6 +10,7 @@ const app = express();
 const fetch = require('node-fetch'); // at the top of app.js if not already imported
 const axios = require('axios');
 const netsQr = require('./services/nets');
+const stripeService = require('./services/stripe');
 
 
 
@@ -639,6 +640,24 @@ app.get('/nets-qr/fail', checkAuthenticated, (req, res) => {
   });
 });
 
+
+app.post('/stripe/create-checkout-session', checkAuthenticated, async (req, res) => {
+  try {
+    const cart = req.session.cart || [];
+    if (!cart.length) return res.status(400).json({ error: 'Cart empty' });
+
+    const session = await stripeService.createCheckoutSession(
+      cart,
+      'http://localhost:3000/receipt', // success URL
+      'http://localhost:3000/checkout' // cancel URL
+    );
+
+    res.json({ id: session.id });
+  } catch (err) {
+    console.error('Stripe session error:', err);
+    res.status(500).json({ error: 'Failed to create Stripe session' });
+  }
+});
 
 
 // Route to render receipt after PayPal payment

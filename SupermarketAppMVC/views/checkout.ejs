@@ -237,6 +237,35 @@
             You will be redirected to scan the NETS QR code
           </p>
 
+          <hr class="my-3">
+          <div class="card-paypal">
+            <div class="card-title"><i class="bi bi-credit-card-2-front"></i> Pay with Stripe <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
+            <button id="stripe-pay-button" class="hb-btn w-100">
+              <i class="bi bi-credit-card-2-front"></i> Pay with Stripe
+            </button>
+            <p class="text-muted text-center mt-2" style="font-size:12px;">
+              Stripe test mode: use card 4242 4242 4242 4242
+            </p>
+          </div>
+
+          <script src="https://js.stripe.com/v3/"></script>
+          <script>
+          const stripe = Stripe('<%= process.env.STRIPE_PUBLISHABLE_KEY %>'); // pk_test_...
+          document.getElementById('stripe-pay-button').addEventListener('click', async () => {
+            const res = await fetch('/stripe/create-checkout-session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.id) {
+              stripe.redirectToCheckout({ sessionId: data.id });
+            } else {
+              alert('Stripe checkout failed');
+            }
+          });
+          </script>
+
+
         </div>
 
       </div>
