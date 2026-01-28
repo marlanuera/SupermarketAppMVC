@@ -23,7 +23,20 @@ async function addTransaction(userId, type, method, amount) {
     );
 }
 
+async function creditWallet(userId, amount, type = 'Credit', method = 'Wallet') {
+    const creditAmount = Number(amount) || 0;
+    if (creditAmount <= 0) return;
+
+    await ensureWalletRow(userId);
+    await db.promise().query(
+        'UPDATE wallets SET balance = balance + ?, updated_at = NOW() WHERE user_id = ?',
+        [creditAmount, userId]
+    );
+    await addTransaction(userId, type, method, creditAmount);
+}
+
 module.exports = {
     ensureWalletRow,
-    addTransaction
+    addTransaction,
+    creditWallet
 };

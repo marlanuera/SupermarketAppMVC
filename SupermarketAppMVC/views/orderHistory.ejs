@@ -14,17 +14,29 @@
     nav .nav-link { color: white !important; font-weight: bold; }
     nav .nav-link:hover { background-color: #FFD54F; color: black !important; border-radius: 5px; }
 
-    .order-box { 
+    .order-card { 
         background: white; 
-        padding: 20px; 
-        border-radius: 12px; 
-        margin: 20px auto; 
-        max-width: 900px; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        padding: 18px 20px; 
+        border-radius: 16px; 
+        margin: 18px auto; 
+        max-width: 980px; 
+        border: 1px solid #eee;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.08);
     }
-    .order-header { display: flex; justify-content: space-between; align-items: center; }
-    .btn-invoice { background-color: #FFD54F; color: black; font-weight: bold; }
+    .order-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .order-id { font-weight: 700; color: #2E8B57; font-size: 1.05rem; }
+    .order-meta { font-size: 0.9rem; color: #666; }
+    .order-total { font-size: 1.25rem; font-weight: 700; }
+    .badge-status { padding: 6px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; text-transform: capitalize; }
+    .status-completed { background: #E8F5E9; color: #2E7D32; }
+    .status-pending { background: #FFF8E1; color: #F57F17; }
+    .status-shipped { background: #E3F2FD; color: #1565C0; }
+    .status-default { background: #F3F4F6; color: #374151; }
+    .order-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 12px; }
+    .btn-invoice { background-color: #FFD54F; color: black; font-weight: bold; border: none; }
     .btn-invoice:hover { background-color: #FFA500; color: white; }
+    .btn-hide { border-color: #dc3545; color: #dc3545; }
+    .btn-hide:hover { background: #dc3545; color: white; }
     .order-items td, .order-items th { text-align: center; }
     h2 { color: #2E8B57; }
 </style>
@@ -40,18 +52,50 @@
   <% } %>
 
   <% orders.forEach(order => { %>
-    <div class="order-box mb-4">
-      <div class="order-header mb-2">
+    <% const orderStatus = (order.status || '').toLowerCase(); %>
+    <% const refundStatus = (order.refundStatus || '').toLowerCase(); %>
+    <div class="order-card">
+      <div class="order-header">
         <div>
-          <strong>Order ID:</strong> <%= order.orderId %> <br>
-          <strong>Date:</strong> <%= new Date(order.orderDate).toLocaleString() %> <br>
-          <strong>Status:</strong> <%= order.status %>
+          <div class="order-id">Order #<%= order.orderId %></div>
+          <div class="order-meta">Date: <%= new Date(order.orderDate).toLocaleString() %></div>
+          <div class="order-meta">Paid via: <%= (order.paymentMethod || 'Unknown').toString().toUpperCase() %></div>
         </div>
-        <div>
-          <strong>Total:</strong> $<%= order.totalAmount.toFixed(2) %> <br>
-          <a href="/order-invoice/<%= order.orderId %>" class="btn btn-invoice mt-2">View Invoice</a>
+        <div class="text-end">
+          <div class="order-total">$<%= order.totalAmount.toFixed(2) %></div>
+          <% const statusClass = orderStatus === 'completed' ? 'status-completed' : (orderStatus === 'pending' ? 'status-pending' : (orderStatus === 'shipped' ? 'status-shipped' : 'status-default')); %>
+          <span class="badge-status <%= statusClass %>"><%= order.status %></span>
         </div>
       </div>
+
+      <% if (refundStatus) { %>
+        <% const refundClass = refundStatus === 'rejected' ? 'alert-danger' : (refundStatus === 'refunded' ? 'alert-success' : 'alert-info'); %>
+        <div class="alert <%= refundClass %> py-2 mt-3 mb-2">
+          Refund Status: <strong><%= order.refundStatus %></strong>
+          <% if (order.refundPreference) { %>
+            (<%= order.refundPreference %>)
+          <% } %>
+        </div>
+      <% } %>
+
+      <div class="order-actions">
+        <a href="/order-invoice/<%= order.orderId %>" class="btn btn-invoice btn-sm">View Invoice</a>
+
+        <% if (!refundStatus && orderStatus === 'completed') { %>
+          <form action="/orders/<%= order.orderId %>/refund-request" method="POST" class="d-flex flex-wrap align-items-center gap-2">
+            <select name="refundPreference" class="form-select form-select-sm" style="min-width: 210px;">
+              <option value="original">Refund to original method</option>
+              <option value="wallet">Refund as Wallet credits (faster)</option>
+            </select>
+            <button type="submit" class="btn btn-outline-success btn-sm">Request Refund</button>
+          </form>
+        <% } %>
+
+        <form action="/orders/<%= order.orderId %>/hide" method="POST" onsubmit="return confirm('Hide this order from your history?');">
+          <button type="submit" class="btn btn-outline-danger btn-sm btn-hide">Hide from history</button>
+        </form>
+      </div>
+
       <table class="table table-bordered order-items">
         <thead>
           <tr>

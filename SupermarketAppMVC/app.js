@@ -29,6 +29,37 @@ async function getPayPalAccessToken() {
     return data.access_token;
 }
 
+function normalizeValue(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function toAmount(value) {
+    const num = Number(value);
+    return isNaN(num) ? 0 : num;
+}
+
+async function processRefundForOrder(order) {
+    const userId = order.userId;
+    const totalAmount = toAmount(order.totalAmount);
+    const paymentMethod = normalizeValue(order.paymentMethod);
+    const refundPreference = normalizeValue(order.refundPreference);
+    const walletUsed = toAmount(order.walletUsed);
+
+    const refundToWallet = refundPreference === 'wallet' || paymentMethod === 'wallet';
+    const walletRefundAmount = refundToWallet ? totalAmount : Math.min(walletUsed, totalAmount);
+    const gatewayRefundAmount = Math.max(0, totalAmount - walletRefundAmount);
+
+    if (walletRefundAmount > 0) {
+        const methodLabel = refundToWallet ? 'Wallet Credit' : 'Wallet Refund';
+        await walletService.creditWallet(userId, walletRefundAmount, 'Refund', methodLabel);
+    }
+
+    if (gatewayRefundAmount > 0) {
+        // Placeholder for real gateway refund calls (Stripe/PayPal/NETS).
+        console.log(`Refunding ${gatewayRefundAmount} to ${paymentMethod || 'gateway'} for order ${order.id}`);
+    }
+}
+
 
 
 
@@ -410,9 +441,11 @@ app.get('/order-history', checkAuthenticated, async (req, res) => {
 
         // Fetch all orders of this user
         const [orders] = await db.promise().query(`
-            SELECT id AS orderId, totalAmount, orderDate, status
+            SELECT id AS orderId, totalAmount, orderDate, status,
+                   paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference
             FROM orders
             WHERE userId = ?
+              AND IFNULL(userHidden, 0) = 0
             ORDER BY orderDate DESC
         `, [userId]);
 
@@ -433,6 +466,50 @@ app.get('/order-history', checkAuthenticated, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.send('Error fetching order history');
+    }
+});
+
+app.post('/orders/:id/refund-request', checkAuthenticated, async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const userId = req.session.user.id;
+        const preference = normalizeValue(req.body.refundPreference) === 'wallet' ? 'wallet' : 'original';
+
+        const [[order]] = await db.promise().query(
+            'SELECT id, userId, status, refundStatus FROM orders WHERE id = ? AND userId = ?',
+            [orderId, userId]
+        );
+
+        if (!order) return res.redirect('/order-history');
+        if (normalizeValue(order.refundStatus)) return res.redirect('/order-history');
+        if (normalizeValue(order.status) !== 'completed') return res.redirect('/order-history');
+
+        await db.promise().query(
+            'UPDATE orders SET refundStatus = ?, refundPreference = ? WHERE id = ?',
+            ['Requested', preference, orderId]
+        );
+
+        res.redirect('/order-history');
+    } catch (err) {
+        console.error('Refund request error:', err);
+        res.redirect('/order-history');
+    }
+});
+
+app.post('/orders/:id/hide', checkAuthenticated, async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const userId = req.session.user.id;
+
+        await db.promise().query(
+            'UPDATE orders SET userHidden = 1 WHERE id = ? AND userId = ?',
+            [orderId, userId]
+        );
+
+        res.redirect('/order-history');
+    } catch (err) {
+        console.error('Hide order error:', err);
+        res.redirect('/order-history');
     }
 });
 
@@ -496,8 +573,9 @@ app.post('/payment', checkAuthenticated, async (req, res) => {
 
         // 1️⃣ Insert order into orders table (auto-increment ID)
         const [orderResult] = await db.promise().query(
-            'INSERT INTO orders (userId, totalAmount, orderDate, status) VALUES (?, ?, NOW(), ?)',
-            [userId, total, 'Completed']
+            `INSERT INTO orders (userId, totalAmount, orderDate, status, paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference, userHidden)
+             VALUES (?, ?, NOW(), ?, ?, ?, ?, NULL, NULL, 0)`,
+            [userId, total, 'Completed', paymentMethod, 0, total]
         );
 
         // 2️⃣ Get the newly created orderId
@@ -621,7 +699,8 @@ app.get('/admin/orders', checkAuthenticated, checkAdmin, async (req, res) => {
     try {
         const [orders] = await db.promise().query(`
             SELECT o.id AS orderId, o.userId, o.orderDate,
-                   o.totalAmount, o.status, u.username, u.email
+                   o.totalAmount, o.status, o.paymentMethod, o.walletUsed, o.gatewayPaid,
+                   o.refundStatus, o.refundPreference, u.username, u.email
             FROM orders o
             JOIN users u ON o.userId = u.id
             ORDER BY o.orderDate DESC
@@ -663,6 +742,117 @@ app.post('/admin/orders/:id/status', checkAuthenticated, checkAdmin, async (req,
     } catch (err) {
         console.error(err);
         res.send('Error updating order');
+    }
+});
+
+app.post('/admin/orders/:id/refund-approve', checkAuthenticated, checkAdmin, async (req, res) => {
+    const orderId = req.params.id;
+
+    try {
+        const [[order]] = await db.promise().query(
+            `SELECT id, userId, totalAmount, paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference
+             FROM orders WHERE id = ?`,
+            [orderId]
+        );
+
+        if (!order || normalizeValue(order.refundStatus) !== 'requested') {
+            return res.redirect('/admin/orders');
+        }
+
+        await processRefundForOrder(order);
+
+        await db.promise().query(
+            'UPDATE orders SET refundStatus = ? WHERE id = ?',
+            ['Refunded', orderId]
+        );
+
+        res.redirect('/admin/orders');
+    } catch (err) {
+        console.error('Refund approval error:', err);
+        res.redirect('/admin/orders');
+    }
+});
+
+app.get('/admin/refunds', checkAuthenticated, checkAdmin, async (req, res) => {
+    try {
+        const [orders] = await db.promise().query(`
+            SELECT o.id AS orderId, o.userId, o.orderDate,
+                   o.totalAmount, o.status, o.paymentMethod, o.walletUsed, o.gatewayPaid,
+                   o.refundStatus, o.refundPreference, u.username, u.email
+            FROM orders o
+            JOIN users u ON o.userId = u.id
+            WHERE LOWER(o.refundStatus) = 'requested'
+            ORDER BY o.orderDate DESC
+        `);
+
+        for (let order of orders) {
+            const [items] = await db.promise().query(`
+                SELECT oi.productId, oi.quantity, oi.price,
+                       p.productName
+                FROM orderitems oi
+                JOIN products p ON oi.productId = p.id
+                WHERE oi.orderId = ?
+            `, [order.orderId]);
+            order.items = items;
+        }
+
+        res.render('adminRefunds', { orders, user: req.session.user });
+    } catch (err) {
+        console.error('Error fetching refunds:', err);
+        res.send('Error fetching refunds');
+    }
+});
+
+app.post('/admin/refunds/:id/approve', checkAuthenticated, checkAdmin, async (req, res) => {
+    const orderId = req.params.id;
+
+    try {
+        const [[order]] = await db.promise().query(
+            `SELECT id, userId, totalAmount, paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference
+             FROM orders WHERE id = ?`,
+            [orderId]
+        );
+
+        if (!order || normalizeValue(order.refundStatus) !== 'requested') {
+            return res.redirect('/admin/refunds');
+        }
+
+        await processRefundForOrder(order);
+
+        await db.promise().query(
+            'UPDATE orders SET refundStatus = ? WHERE id = ?',
+            ['Refunded', orderId]
+        );
+
+        res.redirect('/admin/refunds');
+    } catch (err) {
+        console.error('Refund approval error:', err);
+        res.redirect('/admin/refunds');
+    }
+});
+
+app.post('/admin/refunds/:id/reject', checkAuthenticated, checkAdmin, async (req, res) => {
+    const orderId = req.params.id;
+
+    try {
+        const [[order]] = await db.promise().query(
+            'SELECT id, refundStatus FROM orders WHERE id = ?',
+            [orderId]
+        );
+
+        if (!order || normalizeValue(order.refundStatus) !== 'requested') {
+            return res.redirect('/admin/refunds');
+        }
+
+        await db.promise().query(
+            'UPDATE orders SET refundStatus = ? WHERE id = ?',
+            ['Rejected', orderId]
+        );
+
+        res.redirect('/admin/refunds');
+    } catch (err) {
+        console.error('Refund reject error:', err);
+        res.redirect('/admin/refunds');
     }
 });
 
@@ -776,7 +966,7 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, async (req, res)
     const payableTotal = Number(req.session.payableTotal || 0);
     const session = await stripeService.createCheckoutSession(
       cart,
-      'http://localhost:3000/payment-success', // success URL
+      'http://localhost:3000/payment-success?method=stripe', // success URL
       'http://localhost:3000/checkout', // cancel URL
       payableTotal
     );
@@ -803,12 +993,20 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     const pointsDiscount = Number(req.session.pointsDiscount || 0);
     const walletUseRequested = Number(req.session.walletUseAmount || 0);
     const orderTotal = Math.max(0, total - pointsDiscount);
-    const payableTotal = Math.max(0, orderTotal - walletUseRequested);
+    const paymentMethod = normalizeValue(req.query.method) || normalizeValue(req.session.paymentMethod) || 'unknown';
+
+    // Pre-calc wallet usage for accurate refund tracking
+    const walletRow = await walletService.ensureWalletRow(userId);
+    const pointsAvailable = Number(walletRow.points) || 0;
+    const walletBalance = Number(walletRow.balance) || 0;
+    const walletUsed = Math.max(0, Math.min(walletUseRequested, walletBalance, orderTotal));
+    const payableTotal = Math.max(0, orderTotal - walletUsed);
 
     // 1️⃣ Create order
     const [orderResult] = await db.promise().query(
-      'INSERT INTO orders (userId, totalAmount, orderDate, status) VALUES (?, ?, NOW(), ?)',
-      [userId, orderTotal, 'Completed']
+      `INSERT INTO orders (userId, totalAmount, orderDate, status, paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference, userHidden)
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, NULL, NULL, 0)`,
+      [userId, orderTotal, 'Completed', paymentMethod, walletUsed, payableTotal]
     );
 
     const orderId = orderResult.insertId;
@@ -831,10 +1029,6 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     req.session.cart = [];
 
     // 3.5️⃣ Update points (earn + redeem)
-    const walletRow = await walletService.ensureWalletRow(userId);
-    const pointsAvailable = Number(walletRow.points) || 0;
-    const walletBalance = Number(walletRow.balance) || 0;
-    const walletUsed = Math.max(0, Math.min(walletUseRequested, walletBalance, orderTotal));
     const pointsToUse = Math.max(0, Math.min(pointsToRedeem, pointsAvailable));
     const pointsEarned = Math.floor(orderTotal); // $1 spent = 1 point
     const newPoints = Math.max(0, pointsAvailable - pointsToUse + pointsEarned);

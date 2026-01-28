@@ -39,6 +39,7 @@
             <th>Total Amount</th>
             <th>Status</th>
             <th>Items</th>
+            <th>Refund</th>
             <th>Update Status</th>
           </tr>
         </thead>
@@ -56,6 +57,21 @@
                     <li><%= item.productName %> x <%= item.quantity %></li>
                   <% }) %>
                 </ul>
+              </td>
+              <td>
+                <% const refundStatus = (order.refundStatus || '').toLowerCase(); %>
+                <% if (refundStatus === 'requested') { %>
+                  <div class="mb-1">
+                    Requested (<%= order.refundPreference || 'original' %>)
+                  </div>
+                  <form action="/admin/orders/<%= order.orderId %>/refund-approve" method="POST">
+                    <button type="submit" class="btn btn-success btn-update w-100">Approve</button>
+                  </form>
+                <% } else if (refundStatus === 'refunded') { %>
+                  <span class="text-success">Refunded</span>
+                <% } else { %>
+                  <span class="text-muted">—</span>
+                <% } %>
               </td>
               <td>
                 <form action="/admin/orders/<%= order.orderId %>/status" method="POST">
