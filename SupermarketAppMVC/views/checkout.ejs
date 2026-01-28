@@ -33,6 +33,9 @@
 
     /* Cards */
     .card-summary, .card-delivery, .card-paypal { background:white; border-radius:12px; padding:16px; box-shadow:0 2px 6px rgba(0,0,0,0.05); border:1px solid #eee; margin-bottom:20px; font-size:14px; }
+    .card-delivery { padding:10px; margin-bottom:6px; }
+    .card-delivery .row { --bs-gutter-y: 0.35rem; }
+    .left-col { gap:6px !important; }
     .card-title { font-size:18px; color:#2E8B57; display:flex; align-items:center; gap:10px; margin-bottom:12px; font-weight:bold; }
     .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#FFF5E1; border:1px solid #FFE2A6; border-radius:999px; font-size:12px; color:#7a5a00; font-weight: normal; }
 
@@ -53,6 +56,23 @@
     .hb-btn-outline { background:white; color:#FFA500; border:1px solid #FFA500; }
     .hb-btn-compact { padding:7px 12px; font-size:13px; border-radius:16px; }
     .wallet-meta { font-size:15px; font-weight:700; color:#2E8B57; }
+
+    .hb-btn-rect { border-radius:6px; height:48px; font-weight:800; letter-spacing:0.2px; }
+    .hb-btn-stripe { background:#635bff; color:#fff; }
+    .hb-btn-nets { background:#fff; color:#d2272a; border:1px solid #d2272a; }
+    .pay-logo { height:22px; width:auto; display:inline-block; }
+    .pay-logo-stripe { height:30px; }
+
+    .paylater-options { display:flex; gap:10px; }
+    .paylater-options input { display:none; }
+    .paylater-option { flex:1; border:1px solid #eee; border-radius:12px; padding:12px; cursor:pointer; background:#fff; }
+    .paylater-option strong { color:#2E8B57; }
+    .paylater-option small { color:#8a8a8a; }
+    .paylater-options input:checked + .paylater-option {
+      border-color:#FFA500;
+      background:#FFF5E1;
+      box-shadow:0 0 0 2px rgba(255,165,0,0.15);
+    }
 
     /* Tables */
     table.cart-table { background:white; border-radius:12px; padding:10px; box-shadow:0 2px 6px rgba(0,0,0,0.05); font-size:14px; display:block; max-height:300px; overflow-y:auto; table-layout: fixed; width:100%; }
@@ -169,6 +189,29 @@
             <a href="/cart" class="hb-btn hb-btn-outline"><i class="bi bi-arrow-left"></i> Back to Cart</a>
           </div>
         </div>
+
+        <!-- Points Rewards -->
+        <div class="card-paypal">
+          <div class="card-title"><i class="bi bi-gift"></i> Points Rewards <span class="pill">10 pts = $1</span></div>
+          <div class="mb-2 wallet-meta">
+            Points: <strong><%= pointsAvailable %></strong>
+          </div>
+          <div class="mb-2 text-muted" style="font-size:12px;">
+            Redeemable now: <strong><%= maxPointsRedeemable %></strong> pts = $<%= (maxPointsRedeemable * 0.10).toFixed(2) %>
+          </div>
+          <form action="/checkout/apply-rewards" method="POST" class="d-flex flex-column gap-2">
+            <input type="hidden" name="walletUseAmount" value="0">
+            <input type="hidden" name="pointsToRedeem" value="<%= maxPointsRedeemable %>">
+            <button type="submit" class="hb-btn hb-btn-compact w-100" <%= maxPointsRedeemable > 0 ? '' : 'disabled' %>>
+              <i class="bi bi-gift"></i> Redeem Points Reward
+            </button>
+          </form>
+          <form action="/checkout/apply-rewards" method="POST" class="mt-2">
+            <input type="hidden" name="walletUseAmount" value="0">
+            <input type="hidden" name="pointsToRedeem" value="0">
+            <button type="submit" class="hb-btn hb-btn-compact w-100">Clear Rewards</button>
+          </form>
+        </div>
       </div>
 
       <!-- RIGHT COLUMN -->
@@ -212,12 +255,22 @@
 
         <!-- Sunnyside Wallet -->
         <div class="card-paypal">
-          <div class="card-title"><i class="bi bi-wallet2"></i> Sunnyside Wallet</div>
+          <div class="card-title"><i class="bi bi-wallet2"></i> Sunnyside Wallet <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
           <div class="mb-2 wallet-meta">
             Balance: <strong>$<%= walletBalance.toFixed(2) %></strong>
           </div>
-          <form action="/checkout/pay-wallet" method="POST">
-            <button type="submit" class="hb-btn hb-btn-outline hb-btn-compact w-100"><i class="bi bi-wallet2"></i> Pay with Sunnyside Wallet</button>
+          <form action="/checkout/apply-rewards" method="POST" class="d-flex flex-column gap-2">
+            <input type="number" name="walletUseAmount" min="0" step="0.01" max="<%= walletBalance.toFixed(2) %>" placeholder="Enter wallet amount (SGD)" class="hb-input">
+            <input type="hidden" name="pointsToRedeem" value="<%= pointsToRedeem %>">
+            <button type="submit" class="hb-btn hb-btn-outline hb-btn-compact w-100"><i class="bi bi-wallet2"></i> Apply Wallet Amount</button>
+          </form>
+          <form action="/checkout/apply-rewards" method="POST" class="mt-2">
+            <input type="hidden" name="walletUseAmount" value="0">
+            <input type="hidden" name="pointsToRedeem" value="<%= pointsToRedeem %>">
+            <button type="submit" class="hb-btn hb-btn-compact w-100">Clear Wallet Amount</button>
+          </form>
+          <form action="/checkout/pay-wallet" method="POST" class="mt-2">
+            <button type="submit" class="hb-btn hb-btn-outline hb-btn-compact w-100"><i class="bi bi-wallet2"></i> Pay Full with Wallet</button>
           </form>
           <% if (walletError) { %>
             <div class="text-danger mt-2" style="font-size:12px;">Insufficient wallet balance. Please top up or use another payment method.</div>
@@ -227,30 +280,43 @@
           <% } %>
         </div>
 
-        <!-- Points Rewards -->
-        <div class="card-paypal">
-          <div class="card-title"><i class="bi bi-gift"></i> Points Rewards <span class="pill">10 pts = $1</span></div>
-          <div class="mb-2 wallet-meta">
-            Points: <strong><%= pointsAvailable %></strong>
-          </div>
-          <div class="mb-2 text-muted" style="font-size:12px;">
-            Redeemable now: <strong><%= maxPointsRedeemable %></strong> pts = $<%= (maxPointsRedeemable * 0.10).toFixed(2) %>
-          </div>
-          <form action="/checkout/apply-rewards" method="POST" class="d-flex flex-column gap-2">
-            <input type="hidden" name="walletUseAmount" value="0">
-            <input type="hidden" name="pointsToRedeem" value="<%= maxPointsRedeemable %>">
-            <button type="submit" class="hb-btn hb-btn-compact w-100" <%= maxPointsRedeemable > 0 ? '' : 'disabled' %>>
-              <i class="bi bi-gift"></i> Redeem Points Reward
-            </button>
-          </form>
-          <form action="/checkout/apply-rewards" method="POST" class="mt-2">
-            <input type="hidden" name="walletUseAmount" value="0">
-            <input type="hidden" name="pointsToRedeem" value="0">
-            <button type="submit" class="hb-btn hb-btn-compact w-100">Clear Rewards</button>
-          </form>
-        </div>
-
         <% if (payableTotal > 0) { %>
+        <div class="card-paypal">
+          <div class="card-title"><i class="bi bi-calendar2-check"></i> Sunnyside PayLater <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
+          <div class="text-muted mb-2" style="font-size:12px;">Choose a plan and pay in installments.</div>
+          <form action="/paylater/choose" method="POST">
+            <div class="paylater-options">
+              <input type="radio" id="paylater-3" name="months" value="3" checked>
+              <label for="paylater-3" class="paylater-option">
+                <div class="d-flex justify-content-between">
+                  <div>
+                    <div><strong>$<%= (payableTotal / 3).toFixed(2) %></strong></div>
+                    <small>0% interest</small>
+                  </div>
+                  <div><strong>x 3 mth</strong></div>
+                </div>
+              </label>
+
+              <input type="radio" id="paylater-6" name="months" value="6">
+              <label for="paylater-6" class="paylater-option">
+                <div class="d-flex justify-content-between">
+                  <div>
+                    <div><strong>$<%= (payableTotal / 6).toFixed(2) %></strong></div>
+                    <small>0% interest</small>
+                  </div>
+                  <div><strong>x 6 mth</strong></div>
+                </div>
+              </label>
+            </div>
+            <button type="submit" class="hb-btn w-100 mt-3">Buy Now</button>
+          </form>
+          <div class="text-muted mt-2" style="font-size:12px;">0% interest demo. Credit limit applies.</div>
+        </div>
+        <% if (paylaterError) { %>
+        <div class="card-paypal">
+          <div class="alert alert-warning mb-0"><%= paylaterError %></div>
+        </div>
+        <% } %>
         <!-- PayPal Payment -->
         <div class="card-paypal">
           <div class="card-title"><i class="bi bi-paypal"></i> Pay with PayPal <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
@@ -318,10 +384,11 @@
             <div class="card-title"><i class="bi bi-qr-code-scan"></i> Pay with NETS QR <span class="pill"><i class="bi bi-shield-check"></i> secure</span></div>
             <form action="/generateNETSQR" method="POST">
               <input type="hidden" name="cartTotal" value="<%= payableTotal.toFixed(2) %>">
-              <button type="submit" class="hb-btn hb-btn-outline w-100">
-                <i class="bi bi-qr-code-scan"></i>
-                Pay with NETS QR
-              </button>
+              <input type="hidden" name="paymentContext" value="checkout">
+            <button type="submit" class="hb-btn hb-btn-outline w-100">
+              <i class="bi bi-qr-code-scan"></i>
+              Pay with NETS QR
+            </button>
             </form>
             <p class="text-muted text-center mt-2" style="font-size:12px;">
               You will be redirected to scan the NETS QR code

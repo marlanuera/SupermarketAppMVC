@@ -38,6 +38,69 @@ function toAmount(value) {
     return isNaN(num) ? 0 : num;
 }
 
+function round2(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function ensurePayLaterSession(req) {
+    if (!req.session.payLater) {
+        req.session.payLater = {
+            creditLimit: 200,
+            outstanding: 0,
+            planMonths: 0,
+            monthly: 0,
+            nextDueDate: null,
+            schedule: []
+        };
+    }
+    return req.session.payLater;
+}
+
+function buildPayLaterSchedule(totalAmount, months) {
+    const schedule = [];
+    const monthly = Number(totalAmount) / Number(months);
+    const today = new Date();
+
+    for (let i = 1; i <= months; i++) {
+        const dueDate = new Date(today);
+        dueDate.setMonth(dueDate.getMonth() + i);
+        schedule.push({
+            dueDate: dueDate.toISOString(),
+            amount: round2(monthly),
+            status: 'Unpaid'
+        });
+    }
+
+    return schedule;
+}
+
+function applyPayLaterPayment(req, amount, isEarly) {
+    const payLater = ensurePayLaterSession(req);
+    let remaining = Number(amount) || 0;
+    if (remaining <= 0) return;
+
+    payLater.outstanding = round2(Math.max(0, payLater.outstanding - remaining));
+
+    if (Array.isArray(payLater.schedule) && payLater.schedule.length) {
+        if (isEarly) {
+            payLater.schedule = payLater.schedule.map(item => ({
+                ...item,
+                status: 'Paid'
+            }));
+        } else {
+            while (remaining > 0.005) {
+                const nextUnpaid = payLater.schedule.find(item => item.status !== 'Paid');
+                if (!nextUnpaid) break;
+                nextUnpaid.status = 'Paid';
+                remaining -= Number(nextUnpaid.amount) || 0;
+            }
+        }
+
+        const nextUnpaid = payLater.schedule.find(item => item.status !== 'Paid');
+        payLater.nextDueDate = nextUnpaid ? nextUnpaid.dueDate : null;
+    }
+}
+
 async function processRefundForOrder(order) {
     const userId = order.userId;
     const totalAmount = toAmount(order.totalAmount);
@@ -287,6 +350,8 @@ app.post('/cart/clear', checkAuthenticated, async (req, res) => {
 app.get('/checkout', checkAuthenticated, async (req, res) => {
     try {
         const userId = req.session.user.id;
+        const paylaterError = req.session.paylaterError;
+        req.session.paylaterError = null;
 
         const [cartItems] = await db.promise().query(`
             SELECT c.id AS cartId, c.quantity, p.id AS productId, p.productName, p.category, p.price, p.image, p.quantity AS stock
@@ -308,7 +373,8 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
                 pointsToRedeem: 0,
                 pointsDiscount: 0,
                 maxPointsRedeemable: 0,
-                user: req.session.user 
+                user: req.session.user,
+                paylaterError
             });
         }
 
@@ -356,6 +422,7 @@ app.get('/checkout', checkAuthenticated, async (req, res) => {
             pointsDiscount,
             maxPointsRedeemable,
             walletError: req.query.walletError === '1',
+            paylaterError,
             user: req.session.user, 
             paypalClientId: process.env.PAYPAL_CLIENT_ID,
             paypalCurrency: 'SGD'
@@ -423,6 +490,115 @@ app.post('/checkout/complete-wallet', checkAuthenticated, (req, res) => {
     const payableTotal = Number(req.session.payableTotal || 0);
     if (payableTotal > 0) return res.redirect('/checkout');
     res.redirect('/payment-success?method=wallet');
+});
+
+app.post('/paylater/choose', checkAuthenticated, async (req, res) => {
+    const cart = req.session.cart || [];
+    if (!cart.length) return res.redirect('/checkout');
+
+    const payableTotal = Number(req.session.payableTotal || 0);
+    if (payableTotal <= 0) return res.redirect('/checkout');
+
+    const months = Number(req.body.months) === 6 ? 6 : 3;
+    const payLater = ensurePayLaterSession(req);
+    const availableCredit = round2(payLater.creditLimit - payLater.outstanding);
+
+    if (payableTotal > availableCredit) {
+        req.session.paylaterError = 'Insufficient PayLater credit limit.';
+        return res.redirect('/checkout');
+    }
+
+    const newOutstanding = round2(payLater.outstanding + payableTotal);
+    const schedule = buildPayLaterSchedule(payableTotal, months);
+    req.session.payLater = {
+        ...payLater,
+        planMonths: months,
+        monthly: round2(payableTotal / months),
+        outstanding: newOutstanding,
+        schedule,
+        nextDueDate: schedule[0]?.dueDate || null
+    };
+
+    req.session.paymentMethod = 'paylater';
+    req.session.save(() => res.redirect('/payment-success?method=paylater'));
+});
+
+app.post('/paylater/pay-installment/wallet', checkAuthenticated, async (req, res) => {
+    try {
+        const payLater = ensurePayLaterSession(req);
+        const outstanding = Number(payLater.outstanding) || 0;
+        if (outstanding <= 0) {
+            req.session.paylaterError = 'No outstanding PayLater balance.';
+            return res.redirect('/sunnyside-paylater');
+        }
+
+        const amount = Math.min(outstanding, Number(payLater.monthly) || outstanding);
+        const result = await walletService.debitWallet(req.session.user.id, amount, 'PayLater Payment', 'Wallet');
+        if (!result.ok) {
+            req.session.paylaterError = 'Insufficient wallet balance.';
+            return res.redirect('/sunnyside-paylater');
+        }
+
+        applyPayLaterPayment(req, amount, false);
+        req.session.paylaterMessage = 'Installment paid with wallet.';
+        res.redirect('/sunnyside-paylater');
+    } catch (err) {
+        console.error('PayLater wallet installment error:', err);
+        res.redirect('/sunnyside-paylater');
+    }
+});
+
+app.post('/paylater/pay-early/wallet', checkAuthenticated, async (req, res) => {
+    try {
+        const payLater = ensurePayLaterSession(req);
+        const outstanding = Number(payLater.outstanding) || 0;
+        if (outstanding <= 0) {
+            req.session.paylaterError = 'No outstanding PayLater balance.';
+            return res.redirect('/sunnyside-paylater');
+        }
+
+        const result = await walletService.debitWallet(req.session.user.id, outstanding, 'PayLater Early Payment', 'Wallet');
+        if (!result.ok) {
+            req.session.paylaterError = 'Insufficient wallet balance.';
+            return res.redirect('/sunnyside-paylater');
+        }
+
+        applyPayLaterPayment(req, outstanding, true);
+        req.session.paylaterMessage = 'PayLater balance fully paid with wallet.';
+        res.redirect('/sunnyside-paylater');
+    } catch (err) {
+        console.error('PayLater wallet early error:', err);
+        res.redirect('/sunnyside-paylater');
+    }
+});
+
+app.post('/paylater/pay-installment/nets', checkAuthenticated, async (req, res) => {
+    const payLater = ensurePayLaterSession(req);
+    const outstanding = Number(payLater.outstanding) || 0;
+    if (outstanding <= 0) {
+        req.session.paylaterError = 'No outstanding PayLater balance.';
+        return res.redirect('/sunnyside-paylater');
+    }
+
+    const amount = Math.min(outstanding, Number(payLater.monthly) || outstanding);
+    req.session.payLaterPendingPayment = { amount, isEarly: false };
+    req.session.netPaymentContext = 'paylater';
+    req.body.cartTotal = amount;
+    return netsQr.generateQrCode(req, res);
+});
+
+app.post('/paylater/pay-early/nets', checkAuthenticated, async (req, res) => {
+    const payLater = ensurePayLaterSession(req);
+    const outstanding = Number(payLater.outstanding) || 0;
+    if (outstanding <= 0) {
+        req.session.paylaterError = 'No outstanding PayLater balance.';
+        return res.redirect('/sunnyside-paylater');
+    }
+
+    req.session.payLaterPendingPayment = { amount: outstanding, isEarly: true };
+    req.session.netPaymentContext = 'paylater';
+    req.body.cartTotal = outstanding;
+    return netsQr.generateQrCode(req, res);
 });
 
 
@@ -887,7 +1063,11 @@ app.post('/paypal/capture-order', async (req, res) => {
   }
 });
 
-app.post('/generateNETSQR', checkAuthenticated, netsQr.generateQrCode);
+app.post('/generateNETSQR', checkAuthenticated, (req, res) => {
+  const context = req.body.paymentContext || 'checkout';
+  req.session.netPaymentContext = context;
+  return netsQr.generateQrCode(req, res);
+});
 
 
 app.get('/sse/payment-status/:txnRetrievalRef', async (req, res) => {
@@ -946,9 +1126,23 @@ app.get('/sse/payment-status/:txnRetrievalRef', async (req, res) => {
 });
 
 app.get('/nets-qr/success', checkAuthenticated, (req, res) => {
-  res.render('netstxnsuccessstatus', {
-    user: req.session.user
-  });
+  if (req.session.payLaterPendingPayment) {
+    const pending = req.session.payLaterPendingPayment;
+    applyPayLaterPayment(req, pending.amount, pending.isEarly);
+    req.session.paylaterMessage = pending.isEarly
+      ? 'PayLater balance paid via NETS.'
+      : 'PayLater installment paid via NETS.';
+    req.session.payLaterPendingPayment = null;
+  }
+  const context = req.session.netPaymentContext;
+  req.session.netPaymentContext = null;
+  if (context === 'paylater') {
+    return res.redirect('/sunnyside-paylater');
+  }
+  if (context === 'checkout') {
+    return res.redirect('/payment-success?method=nets');
+  }
+  res.render('netstxnsuccessstatus', { user: req.session.user });
 });
 
 app.get('/nets-qr/fail', checkAuthenticated, (req, res) => {
@@ -956,7 +1150,6 @@ app.get('/nets-qr/fail', checkAuthenticated, (req, res) => {
     user: req.session.user
   });
 });
-
 
 app.post('/stripe/create-checkout-session', checkAuthenticated, async (req, res) => {
   try {
@@ -994,6 +1187,7 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     const walletUseRequested = Number(req.session.walletUseAmount || 0);
     const orderTotal = Math.max(0, total - pointsDiscount);
     const paymentMethod = normalizeValue(req.query.method) || normalizeValue(req.session.paymentMethod) || 'unknown';
+    const isPayLater = paymentMethod === 'paylater';
 
     // Pre-calc wallet usage for accurate refund tracking
     const walletRow = await walletService.ensureWalletRow(userId);
@@ -1002,11 +1196,14 @@ app.get('/payment-success', checkAuthenticated, async (req, res) => {
     const walletUsed = Math.max(0, Math.min(walletUseRequested, walletBalance, orderTotal));
     const payableTotal = Math.max(0, orderTotal - walletUsed);
 
+    const orderStatus = isPayLater ? 'Pending' : 'Completed';
+    const gatewayPaid = isPayLater ? 0 : payableTotal;
+
     // 1️⃣ Create order
     const [orderResult] = await db.promise().query(
       `INSERT INTO orders (userId, totalAmount, orderDate, status, paymentMethod, walletUsed, gatewayPaid, refundStatus, refundPreference, userHidden)
        VALUES (?, ?, NOW(), ?, ?, ?, ?, NULL, NULL, 0)`,
-      [userId, orderTotal, 'Completed', paymentMethod, walletUsed, payableTotal]
+      [userId, orderTotal, orderStatus, paymentMethod, walletUsed, gatewayPaid]
     );
 
     const orderId = orderResult.insertId;
@@ -1104,6 +1301,42 @@ app.get('/wallet', checkAuthenticated, async (req, res) => {
     } catch (err) {
         console.error('Error loading wallet:', err);
         res.send('Error loading wallet');
+    }
+});
+
+app.get('/sunnyside-paylater', checkAuthenticated, async (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const payLater = ensurePayLaterSession(req);
+
+        const walletRow = await walletService.ensureWalletRow(userId);
+        const walletBalance = Number(walletRow.balance) || 0;
+
+        const availableCredit = round2(payLater.creditLimit - payLater.outstanding);
+        const schedule = Array.isArray(payLater.schedule) ? payLater.schedule : [];
+        const nextDueDate = payLater.nextDueDate;
+
+        const paylaterMessage = req.session.paylaterMessage;
+        const paylaterError = req.session.paylaterError;
+        req.session.paylaterMessage = null;
+        req.session.paylaterError = null;
+
+        res.render('sunnyside-paylater', {
+            user: req.session.user,
+            walletBalance,
+            creditLimit: payLater.creditLimit,
+            outstanding: payLater.outstanding,
+            availableCredit,
+            planMonths: payLater.planMonths,
+            monthly: payLater.monthly,
+            nextDueDate,
+            schedule,
+            paylaterMessage,
+            paylaterError
+        });
+    } catch (err) {
+        console.error('Error loading PayLater page:', err);
+        res.send('Error loading PayLater page');
     }
 });
 

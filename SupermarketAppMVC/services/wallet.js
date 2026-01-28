@@ -35,8 +35,25 @@ async function creditWallet(userId, amount, type = 'Credit', method = 'Wallet') 
     await addTransaction(userId, type, method, creditAmount);
 }
 
+async function debitWallet(userId, amount, type = 'Debit', method = 'Wallet') {
+    const debitAmount = Number(amount) || 0;
+    if (debitAmount <= 0) return { ok: false, balance: 0 };
+
+    const walletRow = await ensureWalletRow(userId);
+    const currentBalance = Number(walletRow.balance) || 0;
+    if (currentBalance < debitAmount) return { ok: false, balance: currentBalance };
+
+    await db.promise().query(
+        'UPDATE wallets SET balance = balance - ?, updated_at = NOW() WHERE user_id = ?',
+        [debitAmount, userId]
+    );
+    await addTransaction(userId, type, method, debitAmount);
+    return { ok: true, balance: currentBalance - debitAmount };
+}
+
 module.exports = {
     ensureWalletRow,
     addTransaction,
-    creditWallet
+    creditWallet,
+    debitWallet
 };

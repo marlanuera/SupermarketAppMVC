@@ -7,20 +7,21 @@
     <div class="collapse navbar-collapse" id="collapsibleNavbar">
       <ul class="navbar-nav ms-auto">
         <% if (user && user.role === 'admin') { %>
-          <li class="nav-item"><a class="nav-link" href="/inventory">Inventory</a></li>
-          <li class="nav-item"><a class="nav-link" href="/addProduct">Add Product</a></li>
           <li class="nav-item"><a class="nav-link" href="/admin/orders">Customer Orders</a></li>
           <li class="nav-item"><a class="nav-link" href="/admin/refunds">Refund Requests</a></li>
-          <li class="nav-item"><a class="nav-link" href="/admin/customers">Customer Accounts</a></li>
+          <li class="nav-item"><a class="nav-link" href="/inventory">Inventory</a></li>
+          <li class="nav-item"><a class="nav-link" href="/addProduct">Add Product</a></li>
           <li class="nav-item"><a class="nav-link" href="/admin/reviews">Customer Reviews</a></li>
+          <li class="nav-item"><a class="nav-link" href="/admin/customers">Customer Accounts</a></li>
           <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
         <% } else if (user) { %>
           <li class="nav-item"><a class="nav-link" href="/shopping">Shopping</a></li>
           <li class="nav-item"><a class="nav-link" href="/cart">Cart</a></li>
+          <li class="nav-item"><a class="nav-link" href="/wallet">Wallet</a></li>
+          <li class="nav-item"><a class="nav-link" href="/sunnyside-paylater">PayLater</a></li>
           <li class="nav-item"><a class="nav-link" href="/order-history">Order History</a></li>
           <li class="nav-item"><a class="nav-link" href="/reviews">Reviews</a></li>
           <li class="nav-item"><a class="nav-link" href="/profile">My Profile</a></li>
-          <li class="nav-item"><a class="nav-link" href="/wallet">Wallet</a></li>
           <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
         <% } else { %>
           <li class="nav-item"><a class="nav-link" href="/register">Register</a></li>
