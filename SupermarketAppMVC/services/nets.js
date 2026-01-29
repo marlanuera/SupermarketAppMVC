@@ -45,6 +45,9 @@ exports.generateQrCode = async (req, res) => {
       qrData.qr_code &&
       qrData.txn_retrieval_ref
     ) {
+      const context = req.session.netPaymentContext || "checkout";
+      const backUrl = context === "paylater" ? "/sunnyside-paylater" : "/checkout";
+      const backLabel = context === "paylater" ? "Back to PayLater" : "Back to Checkout";
       return res.render("netsqr", {
         title: "Scan to Pay",
         total: cartTotal,
@@ -52,6 +55,8 @@ exports.generateQrCode = async (req, res) => {
         txnRetrievalRef: qrData.txn_retrieval_ref,
         apiKey: process.env.NETS_API_KEY,
         projectId: process.env.PROJECT_ID,
+        backUrl,
+        backLabel,
         user: req.session.user
       });
     }
